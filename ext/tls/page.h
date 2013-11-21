@@ -22,8 +22,13 @@ See the file COPYING for complete licensing information.
 #define __PageManager__H_
 
 
-#include <assert.h>
 #include <deque>
+#include <stdexcept>
+#include <assert.h>
+
+#if defined(WIN32) || defined(_WIN32) || defined(__WIN32) && !defined(__CYGWIN__)
+	#include <windows.h>
+#endif
 
 using namespace std;
 
