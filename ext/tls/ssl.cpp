@@ -213,7 +213,7 @@ SslContext_t::~SslContext_t()
 SslBox_t::SslBox_t
 ******************/
 
-SslBox_t::SslBox_t (bool is_server, const string &privkeyfile, const string &certchainfile, bool verify_peer, const unsigned long binding):
+SslBox_t::SslBox_t (tls_state_t *tls_state, bool is_server, const string &privkeyfile, const string &certchainfile, bool verify_peer):
 	bIsServer (is_server),
 	bHandshakeCompleted (false),
 	bVerifyPeer (verify_peer),
@@ -238,8 +238,8 @@ SslBox_t::SslBox_t (bool is_server, const string &privkeyfile, const string &cer
 	assert (pSSL);
 	SSL_set_bio (pSSL, pbioRead, pbioWrite);
 
-	// Store a pointer to the binding signature in the SSL object so we can retrieve it later
-	SSL_set_ex_data(pSSL, 0, (void*) binding);
+	// Store a pointer to the callbacks in the SSL object so we can retrieve it later
+	SSL_set_ex_data(pSSL, 0, (void*) tls_state);
 
 	if (bVerifyPeer)
 		SSL_set_verify(pSSL, SSL_VERIFY_PEER | SSL_VERIFY_CLIENT_ONCE, ssl_verify_wrapper);
@@ -432,30 +432,95 @@ X509 *SslBox_t::GetPeerCert()
 }
 
 
+
+
+
+
+
+
+void _DispatchCiphertext(tls_state_t *tls_state)
+{
+	SslBox_t *SslBox = tls_state->SslBox;
+	assert (SslBox);
+
+	char BigBuf [2048];
+	bool did_work;
+
+	do {
+		did_work = false;
+
+		// try to drain ciphertext
+		while (SslBox->CanGetCiphertext()) {
+			int r = SslBox->GetCiphertext(BigBuf, sizeof(BigBuf));
+			assert (r > 0);
+
+			// Queue the data for transmit
+			tls_state->transmit_cb(tls_state, BigBuf, r);
+
+			did_work = true;
+		}
+
+		// Pump the SslBox, in case it has queued outgoing plaintext
+		// This will return >0 if data was written,
+		// 0 if no data was written, and <0 if there was a fatal error.
+		bool pump;
+		do {
+			pump = false;
+			int w = SslBox->PutPlaintext(NULL, 0);
+			if (w > 0) {
+				did_work = true;
+				pump = true;
+			} else if (w < 0) {
+				// Close on error
+				tls_state->close_cb(tls_state);
+			}
+		} while (pump);
+
+	} while (did_work);
+}
+
+void _CheckHandshakeStatus(tls_state_t *tls_state)
+{
+	SslBox_t *SslBox = tls_state->SslBox;
+	// keep track of weather or not this function has been called yet
+	if (SslBox && (!tls_state->handshake_signaled) && SslBox->IsHandshakeCompleted()) {
+		tls_state->handshake_signaled = true;
+		tls_state->handshake_cb(tls_state);
+	}
+}
+
+
+
+
+
+
+
+
 /******************
 ssl_verify_wrapper
 *******************/
 
 extern "C" int ssl_verify_wrapper(int preverify_ok, X509_STORE_CTX *ctx)
 {
-	unsigned long binding;
 	X509 *cert;
 	SSL *ssl;
 	BUF_MEM *buf;
 	BIO *out;
 	int result;
+	tls_state_t *tls_state;
 
 	cert = X509_STORE_CTX_get_current_cert(ctx);
 	ssl = (SSL*) X509_STORE_CTX_get_ex_data(ctx, SSL_get_ex_data_X509_STORE_CTX_idx());
-	binding = (unsigned long) SSL_get_ex_data(ssl, 0);
 
 	out = BIO_new(BIO_s_mem());
 	PEM_write_bio_X509(out, cert);
 	BIO_write(out, "\0", 1);
 	BIO_get_mem_ptr(out, &buf);
 
-	//ConnectionDescriptor *cd = dynamic_cast <ConnectionDescriptor*> (Bindable_t::GetObject(binding));
-	//result = (cd->VerifySslPeer(buf->data) == true ? 1 : 0);
+	// verify peer callback
+	tls_state = (tls_state_t *) SSL_get_ex_data(ssl, 0);
+	result = tls_state->verify_cb(tls_state, buf->data);
+	
 	BIO_free(out);
 
 	return result;
@@ -466,4 +531,58 @@ extern "C" int testffi()
 {
 	return 1;
 }
+
+
+
+// These are the FFI interactions:
+// ------------------------------
+extern "C" void start_tls(tls_state_t *tls_state, bool bIsServer, const char *PrivateKeyFilename, const char *CertChainFilename, bool bSslVerifyPeer)
+{
+	tls_state->SslBox = new SslBox_t (tls_state, bIsServer, PrivateKeyFilename, CertChainFilename, bSslVerifyPeer);
+	_DispatchCiphertext(tls_state);
+}
+
+extern "C" void encrypt_data(tls_state_t *tls_state, const char *data, int length) {
+	if (length > 0) {
+		SslBox_t *SslBox = tls_state->SslBox;
+		int w = SslBox->PutPlaintext(data, length);
+
+		if (w < 0) {
+			// Close the connection if there was an issue
+			tls_state->close_cb(tls_state);
+		} else {
+			_DispatchCiphertext(tls_state);
+		}
+	}
+}
+
+extern "C" void decode_data(tls_state_t *tls_state, const char *buffer, int size) {
+	SslBox_t *SslBox = tls_state->SslBox;
+	SslBox->PutCiphertext (buffer, size);
+
+	int s;
+	char B [2048];
+	while ((s = SslBox->GetPlaintext(B, sizeof(B) - 1)) > 0) {
+		_CheckHandshakeStatus(tls_state);
+		B[s] = 0;
+
+		// data recieved callback
+		tls_state->dispatch_cb(tls_state, B, s);
+	}
+
+	// If our SSL handshake had a problem, shut down the connection.
+	if (s == -2) {
+		tls_state->close_cb(tls_state);
+		return;
+	}
+
+	_CheckHandshakeStatus(tls_state);
+	_DispatchCiphertext(tls_state);
+}
+
+extern "C" X509 *get_peer_cert(tls_state_t *tls_state)
+{
+	return tls_state->SslBox->GetPeerCert();
+}
+
 

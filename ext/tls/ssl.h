@@ -58,6 +58,12 @@ class SslContext_t
 };
 
 
+
+
+typedef struct tls_state_s tls_state_t;
+
+
+
 /**************
 class SslBox_t
 **************/
@@ -65,7 +71,7 @@ class SslBox_t
 class SslBox_t
 {
 	public:
-		SslBox_t (bool is_server, const string &privkeyfile, const string &certchainfile, bool verify_peer, const unsigned long binding);
+		SslBox_t (tls_state_t *tls_state, bool is_server, const string &privkeyfile, const string &certchainfile, bool verify_peer);
 		virtual ~SslBox_t();
 
 		int PutPlaintext (const char*, int);
@@ -74,7 +80,7 @@ class SslBox_t
 		bool PutCiphertext (const char*, int);
 		bool CanGetCiphertext();
 		int GetCiphertext (char*, int);
-		bool IsHandshakeCompleted() {return bHandshakeCompleted;}
+		bool IsHandshakeCompleted() { return bHandshakeCompleted; }
 
 		X509 *GetPeerCert();
 
@@ -93,9 +99,33 @@ class SslBox_t
 		PageList OutboundQ;
 };
 
-extern "C" int ssl_verify_wrapper(int, X509_STORE_CTX*);
+
+typedef void (*ssl_close_cb)(const tls_state_t*);
+typedef int (*ssl_verify_cb)(const tls_state_t*, const char *cert);
+typedef void (*ssl_dispatch_cb)(const tls_state_t*, const char *buffer, int size);
+typedef void (*ssl_transmit_cb)(const tls_state_t*, const char *buffer, int size);
+typedef void (*ssl_handshake_cb)(const tls_state_t*);
+
+struct tls_state_s {
+	bool handshake_signaled;
+
+	ssl_close_cb close_cb;
+	ssl_verify_cb verify_cb;
+	ssl_dispatch_cb dispatch_cb;
+	ssl_transmit_cb transmit_cb;
+	ssl_handshake_cb handshake_cb;
+
+	SslBox_t* SslBox;
+};
+
+
 extern "C" int testffi();
+extern "C" int ssl_verify_wrapper(int preverify_ok, X509_STORE_CTX *ctx);
+
+extern "C" void start_tls(tls_state_t *tls_state, bool bIsServer, const char *PrivateKeyFilename, const char *CertChainFilename, bool bSslVerifyPeer);
+extern "C" void decode_data(tls_state_t *tls_state, const char *buffer, int size);
+extern "C" void encrypt_data(tls_state_t *tls_state, const char *data, int length);
+extern "C" X509 *get_peer_cert(tls_state_t *tls_state);
 
 
 #endif // __SslBox__H_
-
