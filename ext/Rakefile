@@ -8,13 +8,10 @@ FFI::Compiler::CompileTask.new('ruby-tls-ext') do |t|
 
     # Link to OpenSSL
     if FFI::Platform.windows?
-        if FFI::Platform::ARCH == 'i386'
-            t.cflags << "-I c:/OpenSSL-Win32/include"
-            t.ldflags << '-L"c:/OpenSSL-Win32/lib" -lssleay32 -llibeay32'
-        else
-            t.cflags << "-I c:/OpenSSL-Win64/include"
-            t.ldflags << '-L"c:/OpenSSL-Win64/lib" -lssleay32 -llibeay32'
-        end
+        path = File.dirname(ENV["OPENSSL_CONF"])
+        path = File.expand_path("../", path)
+        t.cflags << "-I \"#{path}/include\""
+        t.ldflags << "-L\"#{path}/lib\" -lssleay32 -llibeay32"
     else
         t.ldflags << "-lssl -lcrypto"
     end
