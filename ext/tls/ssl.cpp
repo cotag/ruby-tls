@@ -483,9 +483,13 @@ void _CheckHandshakeStatus(tls_state_t *tls_state)
 {
 	SslBox_t *SslBox = tls_state->SslBox;
 	// keep track of weather or not this function has been called yet
-	if (SslBox && (!tls_state->handshake_signaled) && SslBox->IsHandshakeCompleted()) {
-		tls_state->handshake_signaled = true;
-		tls_state->handshake_cb(tls_state);
+	if (SslBox && tls_state->handshake_signaled == 0 && SslBox->IsHandshakeCompleted()) {
+		tls_state->handshake_signaled = 1;
+
+		// Optional callback
+		if (tls_state->handshake_cb) {
+			tls_state->handshake_cb(tls_state);
+		}
 	}
 }
 
@@ -517,19 +521,17 @@ extern "C" int ssl_verify_wrapper(int preverify_ok, X509_STORE_CTX *ctx)
 	BIO_write(out, "\0", 1);
 	BIO_get_mem_ptr(out, &buf);
 
-	// verify peer callback
-	tls_state = (tls_state_t *) SSL_get_ex_data(ssl, 0);
-	result = tls_state->verify_cb(tls_state, buf->data);
+	// optional verify peer callback
+	if (tls_state->verify_cb) {
+		tls_state = (tls_state_t *) SSL_get_ex_data(ssl, 0);
+		result = tls_state->verify_cb(tls_state, buf->data);
+	} else {
+		result = 1;
+	}
 	
 	BIO_free(out);
 
 	return result;
-}
-
-
-extern "C" int testffi()
-{
-	return 1;
 }
 
 
@@ -543,8 +545,9 @@ extern "C" void start_tls(tls_state_t *tls_state, bool bIsServer, const char *Pr
 }
 
 extern "C" void encrypt_data(tls_state_t *tls_state, const char *data, int length) {
-	if (length > 0) {
-		SslBox_t *SslBox = tls_state->SslBox;
+	SslBox_t *SslBox = tls_state->SslBox;
+
+	if (length > 0 && SslBox) {
 		int w = SslBox->PutPlaintext(data, length);
 
 		if (w < 0) {
@@ -558,31 +561,36 @@ extern "C" void encrypt_data(tls_state_t *tls_state, const char *data, int lengt
 
 extern "C" void decode_data(tls_state_t *tls_state, const char *buffer, int size) {
 	SslBox_t *SslBox = tls_state->SslBox;
-	SslBox->PutCiphertext (buffer, size);
+	if (SslBox) {
+		SslBox->PutCiphertext (buffer, size);
 
-	int s;
-	char B [2048];
-	while ((s = SslBox->GetPlaintext(B, sizeof(B) - 1)) > 0) {
+		int s;
+		char B [2048];
+		while ((s = SslBox->GetPlaintext(B, sizeof(B) - 1)) > 0) {
+			_CheckHandshakeStatus(tls_state);
+			B[s] = 0;
+
+			// data recieved callback
+			tls_state->dispatch_cb(tls_state, B, s);
+		}
+
+		// If our SSL handshake had a problem, shut down the connection.
+		if (s == -2) {
+			tls_state->close_cb(tls_state);
+			return;
+		}
+
 		_CheckHandshakeStatus(tls_state);
-		B[s] = 0;
-
-		// data recieved callback
-		tls_state->dispatch_cb(tls_state, B, s);
+		_DispatchCiphertext(tls_state);
 	}
-
-	// If our SSL handshake had a problem, shut down the connection.
-	if (s == -2) {
-		tls_state->close_cb(tls_state);
-		return;
-	}
-
-	_CheckHandshakeStatus(tls_state);
-	_DispatchCiphertext(tls_state);
 }
 
 extern "C" X509 *get_peer_cert(tls_state_t *tls_state)
 {
-	return tls_state->SslBox->GetPeerCert();
+	if (tls_state->SslBox)
+		return tls_state->SslBox->GetPeerCert();
+
+	return 0;
 }
 
 

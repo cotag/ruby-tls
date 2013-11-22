@@ -107,7 +107,7 @@ typedef void (*ssl_transmit_cb)(const tls_state_t*, const char *buffer, int size
 typedef void (*ssl_handshake_cb)(const tls_state_t*);
 
 struct tls_state_s {
-	bool handshake_signaled;
+	int handshake_signaled;
 
 	ssl_close_cb close_cb;
 	ssl_verify_cb verify_cb;
@@ -119,7 +119,6 @@ struct tls_state_s {
 };
 
 
-extern "C" int testffi();
 extern "C" int ssl_verify_wrapper(int preverify_ok, X509_STORE_CTX *ctx);
 
 extern "C" void start_tls(tls_state_t *tls_state, bool bIsServer, const char *PrivateKeyFilename, const char *CertChainFilename, bool bSslVerifyPeer);
