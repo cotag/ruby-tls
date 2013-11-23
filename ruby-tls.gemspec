@@ -22,7 +22,7 @@ Gem::Specification.new do |s|
     s.add_development_dependency 'yard'
 
 
-    s.files = Dir["{lib}/**/*"] + %w(Rakefile ruby-tls.gemspec README.md LICENSE)
+    s.files = Dir["{lib}/**/*"] + %w(Rakefile ruby-tls.gemspec README.md EM-LICENSE)
     s.files += ["ext/tls/ssl.cpp", "ext/tls/ssl.h", "ext/tls/page.cpp", "ext/tls/page.h"]
     s.test_files = Dir["spec/**/*"]
     s.extra_rdoc_files = ["README.md"]
