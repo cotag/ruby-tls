@@ -559,7 +559,7 @@ extern "C" void encrypt_data(tls_state_t *tls_state, const char *data, int lengt
 	}
 }
 
-extern "C" void decode_data(tls_state_t *tls_state, const char *buffer, int size) {
+extern "C" void decrypt_data(tls_state_t *tls_state, const char *buffer, int size) {
 	SslBox_t *SslBox = tls_state->SslBox;
 	if (SslBox) {
 		SslBox->PutCiphertext (buffer, size);

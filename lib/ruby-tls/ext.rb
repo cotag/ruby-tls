@@ -26,7 +26,7 @@ module RubyTls
 
 
     attach_function :start_tls,     [State.by_ref, :bool, :string, :string, :bool],  :void, :blocking => true
-    attach_function :decode_data,   [State.by_ref, :pointer, :int],                  :void, :blocking => true
-    attach_function :encrypt_data,  [State.by_ref, :string, :int],                   :void, :blocking => true
+    attach_function :decrypt_data,  [State.by_ref, :pointer, :int],                  :void, :blocking => true
+    attach_function :encrypt_data,  [State.by_ref, :pointer, :int],                  :void, :blocking => true
     #attach_function :get_peer_cert, [], :int, :blocking => true
 end

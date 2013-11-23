@@ -122,7 +122,7 @@ struct tls_state_s {
 extern "C" int ssl_verify_wrapper(int preverify_ok, X509_STORE_CTX *ctx);
 
 extern "C" void start_tls(tls_state_t *tls_state, bool bIsServer, const char *PrivateKeyFilename, const char *CertChainFilename, bool bSslVerifyPeer);
-extern "C" void decode_data(tls_state_t *tls_state, const char *buffer, int size);
+extern "C" void decrypt_data(tls_state_t *tls_state, const char *buffer, int size);
 extern "C" void encrypt_data(tls_state_t *tls_state, const char *data, int length);
 extern "C" X509 *get_peer_cert(tls_state_t *tls_state);
 
