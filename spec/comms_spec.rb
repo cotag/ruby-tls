@@ -105,7 +105,7 @@ describe RubyTls do
             @client.transmit_cb do |data|
                 if not @server_started
                     @server_started = true
-                    @server.start(true)
+                    @server.start(:server => true)
                 end
                 @server.decrypt(data) unless @client_stop
             end

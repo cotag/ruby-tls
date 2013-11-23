@@ -174,7 +174,7 @@ SslContext_t::SslContext_t (bool is_server, const string &privkeyfile, const str
 
 	if (is_server) {
 		SSL_CTX_sess_set_cache_size (pCtx, 128);
-		SSL_CTX_set_session_id_context (pCtx, (unsigned char*)"rubyuv", 6);
+		SSL_CTX_set_session_id_context (pCtx, (unsigned char*)"ruby-tls", 8);
 	}
 	else {
 		int e;
@@ -521,13 +521,8 @@ extern "C" int ssl_verify_wrapper(int preverify_ok, X509_STORE_CTX *ctx)
 	BIO_write(out, "\0", 1);
 	BIO_get_mem_ptr(out, &buf);
 
-	// optional verify peer callback
-	if (tls_state->verify_cb) {
-		tls_state = (tls_state_t *) SSL_get_ex_data(ssl, 0);
-		result = tls_state->verify_cb(tls_state, buf->data);
-	} else {
-		result = 1;
-	}
+	tls_state = (tls_state_t *) SSL_get_ex_data(ssl, 0);
+	result = tls_state->verify_cb(tls_state, buf->data);
 	
 	BIO_free(out);
 

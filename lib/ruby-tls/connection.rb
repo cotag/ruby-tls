@@ -29,7 +29,7 @@ module RubyTls
         def verify_cb
             cb = ::FFI::Function.new(:int, [::RubyTls::State.ptr, :string]) do |state, cert|
                 begin
-                    yield(cert) ? 1 : 0
+                    yield(cert) == true ? 1 : 0
                 rescue
                     # TODO:: Provide some debugging output
                     0
@@ -58,10 +58,18 @@ module RubyTls
         end
 
 
-        def start(server = false, privateKeyFilename = '', certChainFilename = '', verifyPeer = false)
+        def start(args = {})
             return if @started
+
+            server, priv_key, cert_chain, verify_peer = args.values_at(:server, :private_key_file, :cert_chain_file, :verify_peer)
+            [priv_key, cert_chain].each do |file|
+                next if file.nil? or file.empty?
+                raise FileNotFoundException,
+                "Could not find #{file} to start tls" unless File.exists? file
+            end
+
             @started = true
-            ::RubyTls.start_tls(@state, server, privateKeyFilename, certChainFilename, verifyPeer)
+            ::RubyTls.start_tls(@state, server || false, priv_key || '', cert_chain || '', verify_peer || !!@callbacks[:verify_cb])
         end
 
         def encrypt(data)
