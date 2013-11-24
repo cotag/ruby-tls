@@ -7,7 +7,7 @@ Gem::Specification.new do |s|
     s.version     = RubyTls::VERSION
     s.authors     = ["Stephen von Takach"]
     s.email       = ["steve@cotag.me"]
-    s.license     = 'MIT'
+    s.license     = ["Ruby", "GPL"]
     s.homepage    = "https://github.com/cotag/ruby-tls"
     s.summary     = "Abstract TLS for Ruby"
     s.description = <<-EOF

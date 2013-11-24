@@ -170,7 +170,9 @@ SslContext_t::SslContext_t (bool is_server, const string &privkeyfile, const str
 		assert (e > 0);
 	}
 
-	SSL_CTX_set_cipher_list (pCtx, "ALL:!ADH:!LOW:!EXP:!DES-CBC3-SHA:@STRENGTH");
+	//SSL_CTX_set_cipher_list (pCtx, "ALL:!ADH:!LOW:!EXP:!DES-CBC3-SHA:@STRENGTH");
+	// Improve security http://blog.cloudflare.com/staying-on-top-of-tls-attacks
+	SSL_CTX_set_cipher_list (pCtx, "ECDHE-RSA-AES128-GCM-SHA256:ECDHE-RSA-RC4-SHA:ECDHE-RSA-AES128-SHA:AES128-GCM-SHA256:RC4:HIGH:!MD5:!aNULL:!EDH:!CAMELLIA:@STRENGTH");
 
 	if (is_server) {
 		SSL_CTX_sess_set_cache_size (pCtx, 128);
