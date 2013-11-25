@@ -2,6 +2,8 @@
 
 Ruby-TLS decouples the management of encrypted communications, putting you in charge of the transport layer. It can be used as an alternative to Ruby's SSLSocket.
 
+[![Build Status](https://travis-ci.org/cotag/ruby-tls.png?branch=master)](https://travis-ci.org/cotag/ruby-tls)
+
 
 ## Install the gem
 
