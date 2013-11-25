@@ -25,6 +25,7 @@ See the file COPYING for complete licensing information.
 #include <deque>
 #include <stdexcept>
 #include <assert.h>
+#include <stdlib.h>
 
 #if defined(WIN32) || defined(_WIN32) || defined(__WIN32) && !defined(__CYGWIN__)
 	#include <windows.h>
