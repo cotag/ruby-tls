@@ -20,10 +20,6 @@ See the file COPYING for complete licensing information.
 #include "ssl.h"
 
 
-bool SslContext_t::bLibraryInitialized = false;
-
-
-
 static void InitializeDefaultCredentials();
 static EVP_PKEY *DefaultPrivateKey = NULL;
 static X509 *DefaultCertificate = NULL;
@@ -81,8 +77,8 @@ builtin_passwd_cb
 
 extern "C" int builtin_passwd_cb (char *buf, int bufsize, int rwflag, void *userdata)
 {
-	strcpy (buf, "kittycat");
-	return 8;
+    strcpy (buf, "kittycat");
+    return 8;
 }
 
 /****************************
@@ -91,24 +87,24 @@ InitializeDefaultCredentials
 
 static void InitializeDefaultCredentials()
 {
-	BIO *bio = BIO_new_mem_buf (PrivateMaterials, -1);
-	assert (bio);
+    BIO *bio = BIO_new_mem_buf (PrivateMaterials, -1);
+    assert (bio);
 
-	if (DefaultPrivateKey) {
-		// we may come here in a restart.
-		EVP_PKEY_free (DefaultPrivateKey);
-		DefaultPrivateKey = NULL;
-	}
-	PEM_read_bio_PrivateKey (bio, &DefaultPrivateKey, builtin_passwd_cb, 0);
+    if (DefaultPrivateKey) {
+        // we may come here in a restart.
+        EVP_PKEY_free (DefaultPrivateKey);
+        DefaultPrivateKey = NULL;
+    }
+    PEM_read_bio_PrivateKey (bio, &DefaultPrivateKey, builtin_passwd_cb, 0);
 
-	if (DefaultCertificate) {
-		// we may come here in a restart.
-		X509_free (DefaultCertificate);
-		DefaultCertificate = NULL;
-	}
-	PEM_read_bio_X509 (bio, &DefaultCertificate, NULL, 0);
+    if (DefaultCertificate) {
+        // we may come here in a restart.
+        X509_free (DefaultCertificate);
+        DefaultCertificate = NULL;
+    }
+    PEM_read_bio_X509 (bio, &DefaultCertificate, NULL, 0);
 
-	BIO_free (bio);
+    BIO_free (bio);
 }
 
 
@@ -118,79 +114,68 @@ SslContext_t::SslContext_t
 **************************/
 
 SslContext_t::SslContext_t (bool is_server, const string &privkeyfile, const string &certchainfile):
-	pCtx (NULL),
-	PrivateKey (NULL),
-	Certificate (NULL)
+    pCtx (NULL),
+    PrivateKey (NULL),
+    Certificate (NULL)
 {
 	/* TODO: the usage of the specified private-key and cert-chain filenames only applies to
-	 * client-side connections at this point. Server connections currently use the default materials.
-	 * That needs to be fixed asap.
-	 * Also, in this implementation, server-side connections use statically defined X-509 defaults.
-	 * One thing I'm really not clear on is whether or not you have to explicitly free X509 and EVP_PKEY
-	 * objects when we call our destructor, or whether just calling SSL_CTX_free is enough.
-	 */
+     * client-side connections at this point. Server connections currently use the default materials.
+     * That needs to be fixed asap.
+     * Also, in this implementation, server-side connections use statically defined X-509 defaults.
+     * One thing I'm really not clear on is whether or not you have to explicitly free X509 and EVP_PKEY
+     * objects when we call our destructor, or whether just calling SSL_CTX_free is enough.
+     */
 
-	if (!bLibraryInitialized) {
-		bLibraryInitialized = true;
-		SSL_library_init();
-		OpenSSL_add_ssl_algorithms();
-		OpenSSL_add_all_algorithms();
-		SSL_load_error_strings();
-		ERR_load_crypto_strings();
+    bIsServer = is_server;
+    pCtx = SSL_CTX_new (is_server ? SSLv23_server_method() : SSLv23_client_method());
+    if (!pCtx)
+        throw std::runtime_error ("no SSL context");
 
-		InitializeDefaultCredentials();
-	}
-
-	bIsServer = is_server;
-	pCtx = SSL_CTX_new (is_server ? SSLv23_server_method() : SSLv23_client_method());
-	if (!pCtx)
-		throw std::runtime_error ("no SSL context");
-
-	SSL_CTX_set_options (pCtx, SSL_OP_ALL);
-	//SSL_CTX_set_options (pCtx, (SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3));
+    SSL_CTX_set_options (pCtx, SSL_OP_ALL);
+    //SSL_CTX_set_options (pCtx, (SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3));
 #ifdef SSL_MODE_RELEASE_BUFFERS
-	SSL_CTX_set_mode (pCtx, SSL_MODE_RELEASE_BUFFERS);
+    SSL_CTX_set_mode (pCtx, SSL_MODE_RELEASE_BUFFERS);
 #endif
 
-	if (is_server) {
-		// The SSL_CTX calls here do NOT allocate memory.
-		int e;
-		if (privkeyfile.length() > 0)
-			e = SSL_CTX_use_PrivateKey_file (pCtx, privkeyfile.c_str(), SSL_FILETYPE_PEM);
-		else
-			e = SSL_CTX_use_PrivateKey (pCtx, DefaultPrivateKey);
-		if (e <= 0) ERR_print_errors_fp(stderr);
-		assert (e > 0);
+    if (is_server) {
+        // The SSL_CTX calls here do NOT allocate memory.
+        int e;
+        if (privkeyfile.length() > 0)
+            e = SSL_CTX_use_PrivateKey_file (pCtx, privkeyfile.c_str(), SSL_FILETYPE_PEM);
+        else
+            e = SSL_CTX_use_PrivateKey (pCtx, DefaultPrivateKey);
+        if (e <= 0) ERR_print_errors_fp(stderr);
+        assert (e > 0);
 
-		if (certchainfile.length() > 0)
-			e = SSL_CTX_use_certificate_chain_file (pCtx, certchainfile.c_str());
-		else
-			e = SSL_CTX_use_certificate (pCtx, DefaultCertificate);
-		if (e <= 0) ERR_print_errors_fp(stderr);
-		assert (e > 0);
-	}
+        if (certchainfile.length() > 0)
+            e = SSL_CTX_use_certificate_chain_file (pCtx, certchainfile.c_str());
+        else
+            e = SSL_CTX_use_certificate (pCtx, DefaultCertificate);
+        if (e <= 0) ERR_print_errors_fp(stderr);
+        assert (e > 0);
+    }
 
-	//SSL_CTX_set_cipher_list (pCtx, "ALL:!ADH:!LOW:!EXP:!DES-CBC3-SHA:@STRENGTH");
-	// Improve security http://blog.cloudflare.com/staying-on-top-of-tls-attacks
-	SSL_CTX_set_cipher_list (pCtx, "ECDHE-RSA-AES128-GCM-SHA256:ECDHE-RSA-RC4-SHA:ECDHE-RSA-AES128-SHA:AES128-GCM-SHA256:RC4:HIGH:!MD5:!aNULL:!EDH:!CAMELLIA:@STRENGTH");
+    //SSL_CTX_set_cipher_list (pCtx, "ALL:!ADH:!LOW:!EXP:!DES-CBC3-SHA:@STRENGTH");
+    // Improve security http://blog.cloudflare.com/staying-on-top-of-tls-attacks
+    SSL_CTX_set_cipher_list (pCtx, "ECDHE-RSA-AES128-GCM-SHA256:ECDHE-RSA-RC4-SHA:ECDHE-RSA-AES128-SHA:AES128-GCM-SHA256:RC4:HIGH:!MD5:!aNULL:!EDH:!CAMELLIA:@STRENGTH");
 
-	if (is_server) {
-		SSL_CTX_sess_set_cache_size (pCtx, 128);
-		SSL_CTX_set_session_id_context (pCtx, (unsigned char*)"ruby-tls", 8);
-	}
-	else {
-		int e;
-		if (privkeyfile.length() > 0) {
-			e = SSL_CTX_use_PrivateKey_file (pCtx, privkeyfile.c_str(), SSL_FILETYPE_PEM);
-			if (e <= 0) ERR_print_errors_fp(stderr);
-			assert (e > 0);
-		}
-		if (certchainfile.length() > 0) {
-			e = SSL_CTX_use_certificate_chain_file (pCtx, certchainfile.c_str());
-			if (e <= 0) ERR_print_errors_fp(stderr);
-			assert (e > 0);
-		}
-	}
+    if (is_server) {
+        SSL_CTX_sess_set_cache_size (pCtx, 128);
+        SSL_CTX_set_session_id_context (pCtx, (unsigned char*)"ruby-tls", 8);
+    }
+    else {
+        int e;
+        if (privkeyfile.length() > 0) {
+            e = SSL_CTX_use_PrivateKey_file (pCtx, privkeyfile.c_str(), SSL_FILETYPE_PEM);
+            if (e <= 0) ERR_print_errors_fp(stderr);
+            assert (e > 0);
+        }
+        if (certchainfile.length() > 0) {
+            e = SSL_CTX_use_certificate_chain_file (pCtx, certchainfile.c_str());
+            if (e <= 0) ERR_print_errors_fp(stderr);
+            assert (e > 0);
+        }
+    }
 }
 
 
@@ -201,12 +186,12 @@ SslContext_t::~SslContext_t
 
 SslContext_t::~SslContext_t()
 {
-	if (pCtx)
-		SSL_CTX_free (pCtx);
-	if (PrivateKey)
-		EVP_PKEY_free (PrivateKey);
-	if (Certificate)
-		X509_free (Certificate);
+    if (pCtx)
+        SSL_CTX_free (pCtx);
+    if (PrivateKey)
+        EVP_PKEY_free (PrivateKey);
+    if (Certificate)
+        X509_free (Certificate);
 }
 
 
@@ -216,38 +201,38 @@ SslBox_t::SslBox_t
 ******************/
 
 SslBox_t::SslBox_t (tls_state_t *tls_state, bool is_server, const string &privkeyfile, const string &certchainfile, bool verify_peer):
-	bIsServer (is_server),
-	bHandshakeCompleted (false),
-	bVerifyPeer (verify_peer),
-	pSSL (NULL),
-	pbioRead (NULL),
-	pbioWrite (NULL)
+    bIsServer (is_server),
+    bHandshakeCompleted (false),
+    bVerifyPeer (verify_peer),
+    pSSL (NULL),
+    pbioRead (NULL),
+    pbioWrite (NULL)
 {
-	/* TODO someday: make it possible to re-use SSL contexts so we don't have to create
-	 * a new one every time we come here.
-	 */
+    /* TODO someday: make it possible to re-use SSL contexts so we don't have to create
+     * a new one every time we come here.
+     */
 
-	Context = new SslContext_t (bIsServer, privkeyfile, certchainfile);
-	assert (Context);
+    Context = new SslContext_t (bIsServer, privkeyfile, certchainfile);
+    assert (Context);
 
-	pbioRead = BIO_new (BIO_s_mem());
-	assert (pbioRead);
+    pbioRead = BIO_new (BIO_s_mem());
+    assert (pbioRead);
 
-	pbioWrite = BIO_new (BIO_s_mem());
-	assert (pbioWrite);
+    pbioWrite = BIO_new (BIO_s_mem());
+    assert (pbioWrite);
 
-	pSSL = SSL_new (Context->pCtx);
-	assert (pSSL);
-	SSL_set_bio (pSSL, pbioRead, pbioWrite);
+    pSSL = SSL_new (Context->pCtx);
+    assert (pSSL);
+    SSL_set_bio (pSSL, pbioRead, pbioWrite);
 
-	// Store a pointer to the callbacks in the SSL object so we can retrieve it later
-	SSL_set_ex_data(pSSL, 0, (void*) tls_state);
+    // Store a pointer to the callbacks in the SSL object so we can retrieve it later
+    SSL_set_ex_data(pSSL, 0, (void*) tls_state);
 
-	if (bVerifyPeer)
-		SSL_set_verify(pSSL, SSL_VERIFY_PEER | SSL_VERIFY_CLIENT_ONCE, ssl_verify_wrapper);
+    if (bVerifyPeer)
+        SSL_set_verify(pSSL, SSL_VERIFY_PEER | SSL_VERIFY_CLIENT_ONCE, ssl_verify_wrapper);
 
-	if (!bIsServer)
-		SSL_connect (pSSL);
+    if (!bIsServer)
+        SSL_connect (pSSL);
 }
 
 
@@ -258,16 +243,16 @@ SslBox_t::~SslBox_t
 
 SslBox_t::~SslBox_t()
 {
-	// Freeing pSSL will also free the associated BIOs, so DON'T free them separately.
-	if (pSSL) {
-		if (SSL_get_shutdown (pSSL) & SSL_RECEIVED_SHUTDOWN)
-			SSL_shutdown (pSSL);
-		else
-			SSL_clear (pSSL);
-		SSL_free (pSSL);
-	}
+    // Freeing pSSL will also free the associated BIOs, so DON'T free them separately.
+    if (pSSL) {
+        if (SSL_get_shutdown (pSSL) & SSL_RECEIVED_SHUTDOWN)
+            SSL_shutdown (pSSL);
+        else
+            SSL_clear (pSSL);
+        SSL_free (pSSL);
+    }
 
-	delete Context;
+    delete Context;
 }
 
 
@@ -278,12 +263,12 @@ SslBox_t::PutCiphertext
 
 bool SslBox_t::PutCiphertext (const char *buf, int bufsize)
 {
-	assert (buf && (bufsize > 0));
+    assert (buf && (bufsize > 0));
 
-	assert (pbioRead);
-	int n = BIO_write (pbioRead, buf, bufsize);
+    assert (pbioRead);
+    int n = BIO_write (pbioRead, buf, bufsize);
 
-	return (n == bufsize) ? true : false;
+    return (n == bufsize) ? true : false;
 }
 
 
@@ -293,44 +278,44 @@ SslBox_t::GetPlaintext
 
 int SslBox_t::GetPlaintext (char *buf, int bufsize)
 {
-	if (!SSL_is_init_finished (pSSL)) {
-		int e = bIsServer ? SSL_accept (pSSL) : SSL_connect (pSSL);
-		if (e < 0) {
-			int er = SSL_get_error (pSSL, e);
-			if (er != SSL_ERROR_WANT_READ) {
-				// Return -1 for a nonfatal error, -2 for an error that should force the connection down.
-				return (er == SSL_ERROR_SSL) ? (-2) : (-1);
-			}
-			else
-				return 0;
-		}
-		bHandshakeCompleted = true;
-		// If handshake finished, FALL THROUGH and return the available plaintext.
-	}
+    if (!SSL_is_init_finished (pSSL)) {
+        int e = bIsServer ? SSL_accept (pSSL) : SSL_connect (pSSL);
+        if (e < 0) {
+            int er = SSL_get_error (pSSL, e);
+            if (er != SSL_ERROR_WANT_READ) {
+                // Return -1 for a nonfatal error, -2 for an error that should force the connection down.
+                return (er == SSL_ERROR_SSL) ? (-2) : (-1);
+            }
+            else
+                return 0;
+        }
+        bHandshakeCompleted = true;
+        // If handshake finished, FALL THROUGH and return the available plaintext.
+    }
 
-	if (!SSL_is_init_finished (pSSL)) {
-		// We can get here if a browser abandons a handshake.
-		// The user can see a warning dialog and abort the connection.
-		cerr << "<SSL_incomp>";
-		return 0;
-	}
+    if (!SSL_is_init_finished (pSSL)) {
+        // We can get here if a browser abandons a handshake.
+        // The user can see a warning dialog and abort the connection.
+        cerr << "<SSL_incomp>";
+        return 0;
+    }
 
-	//cerr << "CIPH: " << SSL_get_cipher (pSSL) << endl;
+    //cerr << "CIPH: " << SSL_get_cipher (pSSL) << endl;
 
-	int n = SSL_read (pSSL, buf, bufsize);
-	if (n >= 0) {
-		return n;
-	}
-	else {
-		if (SSL_get_error (pSSL, n) == SSL_ERROR_WANT_READ) {
-			return 0;
-		}
-		else {
-			return -1;
-		}
-	}
+    int n = SSL_read (pSSL, buf, bufsize);
+    if (n >= 0) {
+        return n;
+    }
+    else {
+        if (SSL_get_error (pSSL, n) == SSL_ERROR_WANT_READ) {
+            return 0;
+        }
+        else {
+            return -1;
+        }
+    }
 
-	return 0;
+    return 0;
 }
 
 
@@ -341,8 +326,8 @@ SslBox_t::CanGetCiphertext
 
 bool SslBox_t::CanGetCiphertext()
 {
-	assert (pbioWrite);
-	return BIO_pending (pbioWrite) ? true : false;
+    assert (pbioWrite);
+    return BIO_pending (pbioWrite) ? true : false;
 }
 
 
@@ -353,10 +338,10 @@ SslBox_t::GetCiphertext
 
 int SslBox_t::GetCiphertext (char *buf, int bufsize)
 {
-	assert (pbioWrite);
-	assert (buf && (bufsize > 0));
+    assert (pbioWrite);
+    assert (buf && (bufsize > 0));
 
-	return BIO_read (pbioWrite, buf, bufsize);
+    return BIO_read (pbioWrite, buf, bufsize);
 }
 
 
@@ -367,56 +352,56 @@ SslBox_t::PutPlaintext
 
 int SslBox_t::PutPlaintext (const char *buf, int bufsize)
 {
-	// The caller will interpret the return value as the number of bytes written.
-	// WARNING WARNING WARNING, are there any situations in which a 0 or -1 return
-	// from SSL_write means we should immediately retry? The socket-machine loop
-	// will probably wait for a time-out cycle (perhaps a second) before re-trying.
-	// THIS WOULD CAUSE A PERCEPTIBLE DELAY!
+    // The caller will interpret the return value as the number of bytes written.
+    // WARNING WARNING WARNING, are there any situations in which a 0 or -1 return
+    // from SSL_write means we should immediately retry? The socket-machine loop
+    // will probably wait for a time-out cycle (perhaps a second) before re-trying.
+    // THIS WOULD CAUSE A PERCEPTIBLE DELAY!
 
-	/* We internally queue any outbound plaintext that can't be dispatched
-	 * because we're in the middle of a handshake or something.
-	 * When we get called, try to send any queued data first, and then
-	 * send the caller's data (or queue it). We may get called with no outbound
-	 * data, which means we try to send the outbound queue and that's all.
-	 *
-	 * Return >0 if we wrote any data, 0 if we didn't, and <0 for a fatal error.
-	 * Note that if we return 0, the connection is still considered live
-	 * and we are signalling that we have accepted the outbound data (if any).
-	 */
+    /* We internally queue any outbound plaintext that can't be dispatched
+     * because we're in the middle of a handshake or something.
+     * When we get called, try to send any queued data first, and then
+     * send the caller's data (or queue it). We may get called with no outbound
+     * data, which means we try to send the outbound queue and that's all.
+     *
+     * Return >0 if we wrote any data, 0 if we didn't, and <0 for a fatal error.
+     * Note that if we return 0, the connection is still considered live
+     * and we are signalling that we have accepted the outbound data (if any).
+     */
 
-	OutboundQ.Push (buf, bufsize);
+    OutboundQ.Push (buf, bufsize);
 
-	if (!SSL_is_init_finished (pSSL))
-		return 0;
+    if (!SSL_is_init_finished (pSSL))
+        return 0;
 
-	bool fatal = false;
-	bool did_work = false;
+    bool fatal = false;
+    bool did_work = false;
 
-	while (OutboundQ.HasPages()) {
-		const char *page;
-		int length;
-		OutboundQ.Front (&page, &length);
-		assert (page && (length > 0));
-		int n = SSL_write (pSSL, page, length);
-		if (n > 0) {
-			did_work = true;
-			OutboundQ.PopFront();
-		}
-		else {
-			int er = SSL_get_error (pSSL, n);
-			if ((er != SSL_ERROR_WANT_READ) && (er != SSL_ERROR_WANT_WRITE))
-				fatal = true;
-			break;
-		}
-	}
+    while (OutboundQ.HasPages()) {
+        const char *page;
+        int length;
+        OutboundQ.Front (&page, &length);
+        assert (page && (length > 0));
+        int n = SSL_write (pSSL, page, length);
+        if (n > 0) {
+            did_work = true;
+            OutboundQ.PopFront();
+        }
+        else {
+            int er = SSL_get_error (pSSL, n);
+            if ((er != SSL_ERROR_WANT_READ) && (er != SSL_ERROR_WANT_WRITE))
+                fatal = true;
+            break;
+        }
+    }
 
 
-	if (did_work)
-		return 1;
-	else if (fatal)
-		return -1;
-	else
-		return 0;
+    if (did_work)
+        return 1;
+    else if (fatal)
+        return -1;
+    else
+        return 0;
 }
 
 /**********************
@@ -425,12 +410,12 @@ SslBox_t::GetPeerCert
 
 X509 *SslBox_t::GetPeerCert()
 {
-	X509 *cert = NULL;
+    X509 *cert = NULL;
 
-	if (pSSL)
-		cert = SSL_get_peer_certificate(pSSL);
+    if (pSSL)
+        cert = SSL_get_peer_certificate(pSSL);
 
-	return cert;
+    return cert;
 }
 
 
@@ -442,57 +427,57 @@ X509 *SslBox_t::GetPeerCert()
 
 void _DispatchCiphertext(tls_state_t *tls_state)
 {
-	SslBox_t *SslBox = tls_state->SslBox;
-	assert (SslBox);
+    SslBox_t *SslBox = tls_state->SslBox;
+    assert (SslBox);
 
-	char BigBuf [2048];
-	bool did_work;
+    char BigBuf [2048];
+    bool did_work;
 
-	do {
-		did_work = false;
+    do {
+        did_work = false;
 
-		// try to drain ciphertext
-		while (SslBox->CanGetCiphertext()) {
-			int r = SslBox->GetCiphertext(BigBuf, sizeof(BigBuf));
-			assert (r > 0);
+        // try to drain ciphertext
+        while (SslBox->CanGetCiphertext()) {
+            int r = SslBox->GetCiphertext(BigBuf, sizeof(BigBuf));
+            assert (r > 0);
 
-			// Queue the data for transmit
-			tls_state->transmit_cb(tls_state, BigBuf, r);
+            // Queue the data for transmit
+            tls_state->transmit_cb(tls_state, BigBuf, r);
 
-			did_work = true;
-		}
+            did_work = true;
+        }
 
-		// Pump the SslBox, in case it has queued outgoing plaintext
-		// This will return >0 if data was written,
-		// 0 if no data was written, and <0 if there was a fatal error.
-		bool pump;
-		do {
-			pump = false;
-			int w = SslBox->PutPlaintext(NULL, 0);
-			if (w > 0) {
-				did_work = true;
-				pump = true;
-			} else if (w < 0) {
-				// Close on error
-				tls_state->close_cb(tls_state);
-			}
-		} while (pump);
+        // Pump the SslBox, in case it has queued outgoing plaintext
+        // This will return >0 if data was written,
+        // 0 if no data was written, and <0 if there was a fatal error.
+        bool pump;
+        do {
+            pump = false;
+            int w = SslBox->PutPlaintext(NULL, 0);
+            if (w > 0) {
+                did_work = true;
+                pump = true;
+            } else if (w < 0) {
+                // Close on error
+                tls_state->close_cb(tls_state);
+            }
+        } while (pump);
 
-	} while (did_work);
+    } while (did_work);
 }
 
 void _CheckHandshakeStatus(tls_state_t *tls_state)
 {
-	SslBox_t *SslBox = tls_state->SslBox;
-	// keep track of weather or not this function has been called yet
-	if (SslBox && tls_state->handshake_signaled == 0 && SslBox->IsHandshakeCompleted()) {
-		tls_state->handshake_signaled = 1;
+    SslBox_t *SslBox = tls_state->SslBox;
+    // keep track of weather or not this function has been called yet
+    if (SslBox && tls_state->handshake_signaled == 0 && SslBox->IsHandshakeCompleted()) {
+        tls_state->handshake_signaled = 1;
 
-		// Optional callback
-		if (tls_state->handshake_cb) {
-			tls_state->handshake_cb(tls_state);
-		}
-	}
+        // Optional callback
+        if (tls_state->handshake_cb) {
+            tls_state->handshake_cb(tls_state);
+        }
+    }
 }
 
 
@@ -508,27 +493,27 @@ ssl_verify_wrapper
 
 extern "C" int ssl_verify_wrapper(int preverify_ok, X509_STORE_CTX *ctx)
 {
-	X509 *cert;
-	SSL *ssl;
-	BUF_MEM *buf;
-	BIO *out;
-	int result;
-	tls_state_t *tls_state;
+    X509 *cert;
+    SSL *ssl;
+    BUF_MEM *buf;
+    BIO *out;
+    int result;
+    tls_state_t *tls_state;
 
-	cert = X509_STORE_CTX_get_current_cert(ctx);
-	ssl = (SSL*) X509_STORE_CTX_get_ex_data(ctx, SSL_get_ex_data_X509_STORE_CTX_idx());
+    cert = X509_STORE_CTX_get_current_cert(ctx);
+    ssl = (SSL*) X509_STORE_CTX_get_ex_data(ctx, SSL_get_ex_data_X509_STORE_CTX_idx());
 
-	out = BIO_new(BIO_s_mem());
-	PEM_write_bio_X509(out, cert);
-	BIO_write(out, "\0", 1);
-	BIO_get_mem_ptr(out, &buf);
+    out = BIO_new(BIO_s_mem());
+    PEM_write_bio_X509(out, cert);
+    BIO_write(out, "\0", 1);
+    BIO_get_mem_ptr(out, &buf);
 
-	tls_state = (tls_state_t *) SSL_get_ex_data(ssl, 0);
-	result = tls_state->verify_cb(tls_state, buf->data);
-	
-	BIO_free(out);
+    tls_state = (tls_state_t *) SSL_get_ex_data(ssl, 0);
+    result = tls_state->verify_cb(tls_state, buf->data);
+    
+    BIO_free(out);
 
-	return result;
+    return result;
 }
 
 
@@ -537,57 +522,66 @@ extern "C" int ssl_verify_wrapper(int preverify_ok, X509_STORE_CTX *ctx)
 // ------------------------------
 extern "C" void start_tls(tls_state_t *tls_state, bool bIsServer, const char *PrivateKeyFilename, const char *CertChainFilename, bool bSslVerifyPeer)
 {
-	tls_state->SslBox = new SslBox_t (tls_state, bIsServer, PrivateKeyFilename, CertChainFilename, bSslVerifyPeer);
-	_DispatchCiphertext(tls_state);
+    tls_state->SslBox = new SslBox_t (tls_state, bIsServer, PrivateKeyFilename, CertChainFilename, bSslVerifyPeer);
+    _DispatchCiphertext(tls_state);
 }
 
 extern "C" void encrypt_data(tls_state_t *tls_state, const char *data, int length) {
-	SslBox_t *SslBox = tls_state->SslBox;
+    SslBox_t *SslBox = tls_state->SslBox;
 
-	if (length > 0 && SslBox) {
-		int w = SslBox->PutPlaintext(data, length);
+    if (length > 0 && SslBox) {
+        int w = SslBox->PutPlaintext(data, length);
 
-		if (w < 0) {
-			// Close the connection if there was an issue
-			tls_state->close_cb(tls_state);
-		} else {
-			_DispatchCiphertext(tls_state);
-		}
-	}
+        if (w < 0) {
+            // Close the connection if there was an issue
+            tls_state->close_cb(tls_state);
+        } else {
+            _DispatchCiphertext(tls_state);
+        }
+    }
 }
 
 extern "C" void decrypt_data(tls_state_t *tls_state, const char *buffer, int size) {
-	SslBox_t *SslBox = tls_state->SslBox;
-	if (SslBox) {
-		SslBox->PutCiphertext (buffer, size);
+    SslBox_t *SslBox = tls_state->SslBox;
+    if (SslBox) {
+        SslBox->PutCiphertext (buffer, size);
 
-		int s;
-		char B [2048];
-		while ((s = SslBox->GetPlaintext(B, sizeof(B) - 1)) > 0) {
-			_CheckHandshakeStatus(tls_state);
-			B[s] = 0;
+        int s;
+        char B [2048];
+        while ((s = SslBox->GetPlaintext(B, sizeof(B) - 1)) > 0) {
+            _CheckHandshakeStatus(tls_state);
+            B[s] = 0;
 
-			// data recieved callback
-			tls_state->dispatch_cb(tls_state, B, s);
-		}
+            // data recieved callback
+            tls_state->dispatch_cb(tls_state, B, s);
+        }
 
-		// If our SSL handshake had a problem, shut down the connection.
-		if (s == -2) {
-			tls_state->close_cb(tls_state);
-			return;
-		}
+        // If our SSL handshake had a problem, shut down the connection.
+        if (s == -2) {
+            tls_state->close_cb(tls_state);
+            return;
+        }
 
-		_CheckHandshakeStatus(tls_state);
-		_DispatchCiphertext(tls_state);
-	}
+        _CheckHandshakeStatus(tls_state);
+        _DispatchCiphertext(tls_state);
+    }
 }
 
 extern "C" X509 *get_peer_cert(tls_state_t *tls_state)
 {
-	if (tls_state->SslBox)
-		return tls_state->SslBox->GetPeerCert();
+    if (tls_state->SslBox)
+        return tls_state->SslBox->GetPeerCert();
 
-	return 0;
+    return 0;
 }
 
 
+extern "C" void init_rubytls() {
+    SSL_library_init();
+    OpenSSL_add_ssl_algorithms();
+    OpenSSL_add_all_algorithms();
+    SSL_load_error_strings();
+    ERR_load_crypto_strings();
+
+    InitializeDefaultCredentials();
+}

@@ -38,23 +38,23 @@ class PageList
 
 class PageList
 {
-	struct Page {
-		Page (const char *b, size_t s): Buffer(b), Size(s) {}
-		const char *Buffer;
-		size_t Size;
-	};
+    struct Page {
+        Page (const char *b, size_t s): Buffer(b), Size(s) {}
+        const char *Buffer;
+        size_t Size;
+    };
 
-	public:
-		PageList();
-		virtual ~PageList();
+    public:
+        PageList();
+        virtual ~PageList();
 
-		void Push (const char*, int);
-		bool HasPages();
-		void Front (const char**, int*);
-		void PopFront();
+        void Push (const char*, int);
+        bool HasPages();
+        void Front (const char**, int*);
+        void PopFront();
 
-	private:
-		deque<Page> Pages;
+    private:
+        deque<Page> Pages;
 };
 
 

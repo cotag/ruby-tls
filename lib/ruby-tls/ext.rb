@@ -29,4 +29,10 @@ module RubyTls
     attach_function :decrypt_data,  [State.by_ref, :pointer, :int],                  :void, :blocking => true
     attach_function :encrypt_data,  [State.by_ref, :pointer, :int],                  :void, :blocking => true
     #attach_function :get_peer_cert, [], :int, :blocking => true
+
+
+    # This loads the required OpenSSL algorithms and strings
+    attach_function :init_rubytls,  [],  :void
+    init_rubytls
+    private_class_method :init_rubytls
 end

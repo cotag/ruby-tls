@@ -36,8 +36,8 @@ PageList::~PageList
 
 PageList::~PageList()
 {
-	while (HasPages())
-		PopFront();
+    while (HasPages())
+        PopFront();
 }
 
 
@@ -47,17 +47,17 @@ PageList::Front
 
 void PageList::Front (const char **page, int *length)
 {
-	assert (page && length);
+    assert (page && length);
 
-	if (HasPages()) {
-		Page p = Pages.front();
-		*page = p.Buffer;
-		*length = p.Size;
-	}
-	else {
-		*page = NULL;
-		*length = 0;
-	}
+    if (HasPages()) {
+        Page p = Pages.front();
+        *page = p.Buffer;
+        *length = p.Size;
+    }
+    else {
+        *page = NULL;
+        *length = 0;
+    }
 }
 
 
@@ -67,12 +67,12 @@ PageList::PopFront
 
 void PageList::PopFront()
 {
-	if (HasPages()) {
-		Page p = Pages.front();
-		Pages.pop_front();
-		if (p.Buffer)
-			free ((void*)p.Buffer);
-	}
+    if (HasPages()) {
+        Page p = Pages.front();
+        Pages.pop_front();
+        if (p.Buffer)
+            free ((void*)p.Buffer);
+    }
 }
 
 
@@ -82,7 +82,7 @@ PageList::HasPages
 
 bool PageList::HasPages()
 {
-	return (Pages.size() > 0) ? true : false;
+    return (Pages.size() > 0) ? true : false;
 }
 
 
@@ -92,16 +92,11 @@ PageList::Push
 
 void PageList::Push (const char *buf, int size)
 {
-	if (buf && (size > 0)) {
-		char *copy = (char*) malloc (size);
-		if (!copy)
-			throw runtime_error ("no memory in pagelist");
-		memcpy (copy, buf, size);
-		Pages.push_back (Page (copy, size));
-	}
+    if (buf && (size > 0)) {
+        char *copy = (char*) malloc (size);
+        if (!copy)
+            throw runtime_error ("no memory in pagelist");
+        memcpy (copy, buf, size);
+        Pages.push_back (Page (copy, size));
+    }
 }
-
-
-
-
-

@@ -71,9 +71,9 @@ describe RubyTls do
 
 
             
-            @client_data.should == ['ready', 'server response']
-            @server_data.should == ['ready', 'client request']
-            @interleaved.should == ['server ready', 'client ready', 'client request', 'server response']
+            expect(@client_data).to eq(['ready', 'server response'])
+            expect(@server_data).to eq(['ready', 'client request'])
+            expect(@interleaved).to eq(['server ready', 'client ready', 'client request', 'server response'])
         end
     end
 
@@ -138,9 +138,9 @@ describe RubyTls do
             @client.start
 
             
-            @client_data.should == ['ready', 'server response']
-            @server_data.should == ['ready', 'client request']
-            @interleaved.should == ['server ready', 'client ready', 'client request', 'server response']
+            expect(@client_data).to eq(['ready', 'server response'])
+            expect(@server_data).to eq(['ready', 'client request'])
+            expect(@interleaved).to eq(['server ready', 'client ready', 'client request', 'server response'])
         end
     end
 end
