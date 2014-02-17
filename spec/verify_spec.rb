@@ -57,7 +57,8 @@ describe RubyTls do
             end
 
             @client.start(:private_key_file => @dir + 'client.key', :cert_chain_file => @dir + 'client.crt')
-
+            @client.cleanup
+            @server.cleanup
             
             expect(@client_data).to eq(['ready'])
             expect(@server_data).to eq(['verify', 'verify', 'verify', 'ready'])
@@ -107,7 +108,8 @@ describe RubyTls do
             end
 
             @client.start(:private_key_file => @dir + 'client.key', :cert_chain_file => @dir + 'client.crt')
-
+            @client.cleanup
+            @server.cleanup
             
             expect(@client_data).to eq([])
             expect(@server_data).to eq(['verify', 'close', 'verify', 'close'])

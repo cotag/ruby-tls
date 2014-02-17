@@ -68,6 +68,8 @@ describe RubyTls do
             }
 
             RubyTls.start_tls(@client, false, '', '', false)
+            RubyTls.cleanup(@client)
+            RubyTls.cleanup(@server)
 
 
             
@@ -136,6 +138,13 @@ describe RubyTls do
             end
 
             @client.start
+            @client.cleanup
+            @server.cleanup
+
+            # Calls to encrypt should not cause crashes after cleanup
+            @server.encrypt('server response')
+            @client.encrypt('client request')
+
 
             
             expect(@client_data).to eq(['ready', 'server response'])

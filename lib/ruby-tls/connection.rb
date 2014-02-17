@@ -1,16 +1,18 @@
 
 module RubyTls
     class Connection
-        CALLBACKS = [:close_cb, :verify_cb, :dispatch_cb, :transmit_cb, :handshake_cb]
+        CALLBACKS = [:close_cb, :verify_cb, :dispatch_cb, :transmit_cb, :handshake_cb].freeze
+        Callbacks = Struct.new(*CALLBACKS)
 
         #
         # Initializes the State instance.
         #
         def initialize(callback_obj = nil)
             @state = ::RubyTls::State.new
-            @callbacks = {} # so GC doesn't clean them up on java
+            @callbacks = Callbacks.new      # so GC doesn't clean them up on java
             @started = false
 
+            # Attach callbacks if there is an object passed in to handle the callbacks
             if not callback_obj.nil?
                 CALLBACKS.each do |callback|
                     self.__send__(callback, &callback_obj.method(callback)) if callback_obj.respond_to? callback
@@ -67,19 +69,20 @@ module RubyTls
                 raise FileNotFoundException,
                 "Could not find #{file} to start tls" unless File.exists? file
             end
-
             @started = true
             ::RubyTls.start_tls(@state, server || false, priv_key || '', cert_chain || '', verify_peer || !!@callbacks[:verify_cb])
         end
 
         def encrypt(data)
-            return unless @started
             ::RubyTls.encrypt_data(@state, data, data.length)
         end
 
         def decrypt(data)
-            return unless @started
             ::RubyTls.decrypt_data(@state, data, data.length)
+        end
+
+        def cleanup
+            ::RubyTls.cleanup(@state)
         end
 
 

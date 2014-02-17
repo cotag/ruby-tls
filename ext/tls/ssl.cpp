@@ -575,6 +575,13 @@ extern "C" X509 *get_peer_cert(tls_state_t *tls_state)
     return 0;
 }
 
+extern "C" void cleanup(tls_state_t *tls_state) {
+    SslBox_t *SslBox = tls_state->SslBox;
+    if (SslBox) {
+        tls_state->SslBox = 0;
+        delete SslBox;
+    }
+}
 
 extern "C" void init_rubytls() {
     SSL_library_init();
