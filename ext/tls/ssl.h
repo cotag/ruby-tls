@@ -41,7 +41,7 @@ class SslContext_t
 class SslContext_t
 {
     public:
-        SslContext_t (bool is_server, const string &privkeyfile, const string &certchainfile);
+        SslContext_t (bool is_server, const string &privkeyfile, const string &certchainfile, const string &alpnStr);
         virtual ~SslContext_t();
 
     private:
@@ -68,7 +68,7 @@ class SslBox_t
 class SslBox_t
 {
     public:
-        SslBox_t (tls_state_t *tls_state, bool is_server, const string &privkeyfile, const string &certchainfile, bool verify_peer);
+        SslBox_t (tls_state_t *tls_state, bool is_server, const string &privkeyfile, const string &certchainfile, bool verify_peer, const string &alpnStr);
         virtual ~SslBox_t();
 
         int PutPlaintext (const char*, int);
@@ -118,7 +118,7 @@ struct tls_state_s {
 
 extern "C" int ssl_verify_wrapper(int preverify_ok, X509_STORE_CTX *ctx);
 
-extern "C" void start_tls(tls_state_t *tls_state, bool bIsServer, const char *PrivateKeyFilename, const char *CertChainFilename, bool bSslVerifyPeer);
+extern "C" void start_tls(tls_state_t *tls_state, bool bIsServer, const char *PrivateKeyFilename, const char *CertChainFilename, bool bSslVerifyPeer, const char *alpnStr);
 extern "C" void cleanup(tls_state_t *tls_state);
 extern "C" void decrypt_data(tls_state_t *tls_state, const char *buffer, int size);
 extern "C" void encrypt_data(tls_state_t *tls_state, const char *data, int length);

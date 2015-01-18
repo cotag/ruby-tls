@@ -113,7 +113,7 @@ static void InitializeDefaultCredentials()
 SslContext_t::SslContext_t
 **************************/
 
-SslContext_t::SslContext_t (bool is_server, const string &privkeyfile, const string &certchainfile):
+SslContext_t::SslContext_t (bool is_server, const string &privkeyfile, const string &certchainfile, const string &alpnStr):
     pCtx (NULL),
     PrivateKey (NULL),
     Certificate (NULL)
@@ -176,6 +176,21 @@ SslContext_t::SslContext_t (bool is_server, const string &privkeyfile, const str
             assert (e > 0);
         }
     }
+
+#if OPENSSL_VERSION_NUMBER >= 0x10002000L && !defined(OPENSSL_NO_NEXTPROTONEG)
+    // Note:: that if set_alpn does not return 0 then this failed.
+    // This will not be fatal to the connection however maybe we should flag it somewhere
+    if (alpnStr.length() > 0) {
+        unsigned int len = alpnStr.length();
+        unsigned char *cp = new unsigned char[len + 1];
+
+        // create the prefixed length string
+        *cp = (unsigned char)len;
+        memcpy(cp + 1, alpnStr.c_str(), len);
+        SSL_CTX_set_alpn_protos(pCtx, cp, len + 1);
+        delete cp;
+    }
+#endif
 }
 
 
@@ -200,7 +215,7 @@ SslContext_t::~SslContext_t()
 SslBox_t::SslBox_t
 ******************/
 
-SslBox_t::SslBox_t (tls_state_t *tls_state, bool is_server, const string &privkeyfile, const string &certchainfile, bool verify_peer):
+SslBox_t::SslBox_t (tls_state_t *tls_state, bool is_server, const string &privkeyfile, const string &certchainfile, bool verify_peer, const string &alpnStr):
     bIsServer (is_server),
     bHandshakeCompleted (false),
     bVerifyPeer (verify_peer),
@@ -212,7 +227,7 @@ SslBox_t::SslBox_t (tls_state_t *tls_state, bool is_server, const string &privke
      * a new one every time we come here.
      */
 
-    Context = new SslContext_t (bIsServer, privkeyfile, certchainfile);
+    Context = new SslContext_t (bIsServer, privkeyfile, certchainfile, alpnStr);
     assert (Context);
 
     pbioRead = BIO_new (BIO_s_mem());
@@ -520,9 +535,9 @@ extern "C" int ssl_verify_wrapper(int preverify_ok, X509_STORE_CTX *ctx)
 
 // These are the FFI interactions:
 // ------------------------------
-extern "C" void start_tls(tls_state_t *tls_state, bool bIsServer, const char *PrivateKeyFilename, const char *CertChainFilename, bool bSslVerifyPeer)
+extern "C" void start_tls(tls_state_t *tls_state, bool bIsServer, const char *PrivateKeyFilename, const char *CertChainFilename, bool bSslVerifyPeer, const char *alpnStr)
 {
-    tls_state->SslBox = new SslBox_t (tls_state, bIsServer, PrivateKeyFilename, CertChainFilename, bSslVerifyPeer);
+    tls_state->SslBox = new SslBox_t (tls_state, bIsServer, PrivateKeyFilename, CertChainFilename, bSslVerifyPeer, alpnStr);
     _DispatchCiphertext(tls_state);
 }
 

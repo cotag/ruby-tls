@@ -63,14 +63,14 @@ module RubyTls
         def start(args = {})
             return if @started
 
-            server, priv_key, cert_chain, verify_peer = args.values_at(:server, :private_key_file, :cert_chain_file, :verify_peer)
+            server, priv_key, cert_chain, verify_peer, alpn_str = args.values_at(:server, :private_key_file, :cert_chain_file, :verify_peer, :alpn)
             [priv_key, cert_chain].each do |file|
                 next if file.nil? or file.empty?
                 raise FileNotFoundException,
                 "Could not find #{file} to start tls" unless File.exists? file
             end
             @started = true
-            ::RubyTls.start_tls(@state, server || false, priv_key || '', cert_chain || '', verify_peer || !!@callbacks[:verify_cb])
+            ::RubyTls.start_tls(@state, server || false, priv_key || '', cert_chain || '', verify_peer || !!@callbacks[:verify_cb], alpn_str || '')
         end
 
         def encrypt(data)

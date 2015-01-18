@@ -32,7 +32,7 @@ describe RubyTls do
             @client[:transmit_cb] = proc { |state, data, len|
                 if not @server_started
                     @server_started = true
-                    RubyTls.start_tls(@server, true, '', '', false)
+                    RubyTls.start_tls(@server, true, '', '', false, '')
                 end
                 data = data.get_bytes(0, len)
                 RubyTls.decrypt_data(@server, data, data.length) unless @client_stop
@@ -67,7 +67,7 @@ describe RubyTls do
                 @interleaved << 'server ready'
             }
 
-            RubyTls.start_tls(@client, false, '', '', false)
+            RubyTls.start_tls(@client, false, '', '', false, '')
             RubyTls.cleanup(@client)
             RubyTls.cleanup(@server)
 
