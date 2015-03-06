@@ -16,6 +16,7 @@ Gem::Specification.new do |s|
 
 
     s.add_dependency 'ffi-compiler', '>= 0.0.2'
+    s.add_dependency 'thread_safe'
     s.add_dependency 'rake'
 
     s.add_development_dependency 'rspec'

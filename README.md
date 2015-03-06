@@ -16,7 +16,7 @@ or add this to your Gemfile if you use [Bundler](http://gembundler.com/):
     gem "ruby-tls"
 
 
-Windows users will require an installation of OpenSSL (32bit or 64bit matching the Ruby installation) and be setup with [Ruby Installers DevKit](http://rubyinstaller.org/downloads/)
+Windows users will require an installation of OpenSSL (32bit or 64bit matching the Ruby installation)
 
 
 ## Usage
@@ -25,37 +25,63 @@ Windows users will require an installation of OpenSSL (32bit or 64bit matching t
 require 'rubygems'
 require 'ruby-tls'
 
-#
-# Create a new TLS connection and attach callbacks
-#
-connection = RubyTls::Connection.new do |state|
-  state.handshake_cb do
-    puts "TLS handshake complete"
+class transport
+  def initialize
+    is_server = true
+    callback_obj = self
+    options = {
+
+    }
+    @ssl_layer = RubyTls::SSL::Box.new(is_server, callback_obj, options)
   end
 
-  state.transmit_cb do |data|
-    puts "Data for transmission to remote"
+  def close_cb
+    puts "The transport layer should be shutdown"
   end
 
-  state.dispatch_cb do |data|
+  def dispatch_cb(data)
     puts "Clear text data that has been decrypted"
   end
 
-  state.close_cb do |inst, data|
-    puts "An error occurred, the transport layer should be shutdown"
+  def transmit_cb(data)
+    puts "Encrypted data for transmission to remote"
+    # @tcp.send data
+  end
+
+  def handshake_cb
+    puts "initial handshake has completed"
+  end
+
+  def verify_cb(cert)
+    # Return true or false
+    is_cert_valid? cert
+  end
+
+  def start_tls
+    # Start SSL negotiation when you are ready
+    @ssl_layer.start
+  end
+
+  def send(data)
+    @ssl_layer.encrypt(data)
   end
 end
 
 #
+# Create a new TLS connection
+#
+connection = transport.new
+
+#
 # Init the handshake
 #
-connection.start
+connection.start_tls
 
 #
 # Start sending data to the remote, this will trigger the
 # transmit_cb with encrypted data to send.
 #
-connection.encrypt('client request')
+connection.send('client request')
 
 #
 # Similarly when data is received from the remote it should be
@@ -67,5 +93,5 @@ connection.encrypt('client request')
 
 ## License and copyright
 
-The core SSL code was originally extracted and isolated from [EventMachine](https://github.com/eventmachine/eventmachine/). So is licensed under the same terms, either the GPL or Ruby's License.
+MIT
 

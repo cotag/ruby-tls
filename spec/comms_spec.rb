@@ -2,92 +2,7 @@ require 'ruby-tls'
 
 describe RubyTls do
 
-
-    describe RubyTls::State do
-        before :each do
-            @client = RubyTls::State.new
-            @server = RubyTls::State.new
-
-            @server_started  = false
-            @server_stop = false
-            @client_stop = false
-        end
-
-        
-        it "should be able to send and receive encrypted comms" do
-            @server_data = []
-            @client_data = []
-            @interleaved = []
-
-
-            @client[:close_cb] = proc {
-                @client_data << 'client stopped'
-                @interleaved << 'client stopped'
-                @client_stop = true
-            }
-            @client[:dispatch_cb] = proc { |state, data, len|
-                @client_data << data.read_string(len)
-                @interleaved << data.read_string(len)
-            }
-            @client[:transmit_cb] = proc { |state, data, len|
-                if not @server_started
-                    @server_started = true
-                    RubyTls.start_tls(@server, true, '', '', false, '')
-                end
-                data = data.get_bytes(0, len)
-                RubyTls.decrypt_data(@server, data, data.length) unless @client_stop
-            }
-            @client[:handshake_cb] = proc { |state|
-                @client_data << 'ready'
-                @interleaved << 'client ready'
-
-                sending = 'client request'
-                RubyTls.encrypt_data(@client, sending, sending.length) unless @client_stop
-            }
-
-
-            @server[:close_cb] = proc {
-                @server_data << 'server stop'
-                @interleaved << 'server stop'
-                @server_stop = true
-            }
-            @server[:dispatch_cb] = proc { |state, data, len|
-                @server_data << data.read_string(len)
-                @interleaved << data.read_string(len)
-
-                sending = 'server response'
-                RubyTls.encrypt_data(@server, sending, sending.length) unless @server_stop
-            }
-            @server[:transmit_cb] = proc { |state, data, len|
-                data = data.get_bytes(0, len)
-                RubyTls.decrypt_data(@client, data, data.length) unless @server_stop
-            }
-            @server[:handshake_cb] = proc { |state|
-                @server_data << 'ready'
-                @interleaved << 'server ready'
-            }
-
-            RubyTls.start_tls(@client, false, '', '', false, '')
-            RubyTls.cleanup(@client)
-            RubyTls.cleanup(@server)
-
-
-            
-            expect(@client_data).to eq(['ready', 'server response'])
-            expect(@server_data).to eq(['ready', 'client request'])
-            expect(@interleaved).to eq(['server ready', 'client ready', 'client request', 'server response'])
-        end
-    end
-
-    describe RubyTls::Connection do
-        before :each do
-            @client = RubyTls::Connection.new
-            @server = RubyTls::Connection.new
-
-            @server_started  = false
-            @server_stop = false
-            @client_stop = false
-        end
+    describe RubyTls::SSL::Box do
 
         it "should be able to send and receive encrypted comms" do
             @server_data = []
@@ -95,60 +10,99 @@ describe RubyTls do
             @interleaved = []
 
 
-            @client.close_cb do
-                @client_data << 'client stopped'
-                @interleaved << 'client stopped'
-                @client_stop = true
-            end
-            @client.dispatch_cb do |data|
-                @client_data << data
-                @interleaved << data
-            end
-            @client.transmit_cb do |data|
-                if not @server_started
-                    @server_started = true
-                    @server.start(:server => true)
+            class Client1
+                def initialize(client_data, interleaved)
+                    @client_data = client_data
+                    @interleaved = interleaved
+                    @ssl = RubyTls::SSL::Box.new(false, self)
                 end
-                @server.decrypt(data) unless @client_stop
-            end
-            @client.handshake_cb do
-                @client_data << 'ready'
-                @interleaved << 'client ready'
 
-                @client.encrypt('client request') unless @client_stop
+                attr_reader :ssl
+                attr_accessor :stop
+                attr_accessor :server
+
+                def close_cb
+                    @client_data << 'client stopped'
+                    @interleaved << 'client stopped'
+                    @stop = true
+                end
+
+                def dispatch_cb(data)
+                    @client_data << data
+                    @interleaved << data
+                end
+
+                def transmit_cb(data)
+                    if not @server.started
+                        @server.started = true
+                        @server.ssl.start
+                    end
+                    @server.ssl.decrypt(data) unless @stop
+                end
+
+                def handshake_cb
+                    @client_data << 'ready'
+                    @interleaved << 'client ready'
+
+                    sending = 'client request'
+                    @ssl.encrypt(sending) unless @stop
+                end
             end
 
 
-            @server.close_cb do
-                @server_data << 'server stop'
-                @interleaved << 'server stop'
-                @server_stop = true
-            end
-            @server.dispatch_cb do |data|
-                @server_data << data
-                @interleaved << data
-                @server.encrypt('server response') unless @server_stop
-            end
-            @server.transmit_cb do |data|
-                @client.decrypt(data) unless @server_stop
-            end
-            @server.handshake_cb do
-                @server_data << 'ready'
-                @interleaved << 'server ready'
+            class Server1
+                def initialize(client, server_data, interleaved)
+                    @client = client
+                    @server_data = server_data
+                    @interleaved = interleaved
+                    @ssl = RubyTls::SSL::Box.new(true, self)
+                end
+
+                attr_reader :ssl
+                attr_accessor :started
+                attr_accessor :stop
+
+                def close_cb
+                    @server_data << 'server stop'
+                    @interleaved << 'server stop'
+                    @stop = true
+                end
+
+                def dispatch_cb(data)
+                    @server_data << data
+                    @interleaved << data
+
+                    sending = 'server response'
+                    @ssl.encrypt(sending) unless @stop
+                end
+
+                def transmit_cb(data)
+                    @client.ssl.decrypt(data) unless @stop
+                end
+
+                def handshake_cb
+                    @server_data << 'ready'
+                    @interleaved << 'server ready'
+                end
             end
 
-            @client.start
-            @client.cleanup
-            @server.cleanup
+
+            @client = Client1.new(@client_data, @interleaved)
+            @server = Server1.new(@client, @server_data, @interleaved)
+            @client.server = @server
+
+
+            @client.ssl.start
+            @client.ssl.cleanup
+            @server.ssl.cleanup
+
 
             # Calls to encrypt should not cause crashes after cleanup
-            @server.encrypt('server response')
-            @client.encrypt('client request')
+            @server.ssl.encrypt('server response')
+            @client.ssl.encrypt('client request')
 
-
-            
-            expect(@client_data).to eq(['ready', 'server response'])
             expect(@server_data).to eq(['ready', 'client request'])
+            expect(@client_data).to eq(['ready', 'server response'])
             expect(@interleaved).to eq(['server ready', 'client ready', 'client request', 'server response'])
         end
     end
