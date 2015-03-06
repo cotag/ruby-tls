@@ -30,7 +30,10 @@ class transport
     is_server = true
     callback_obj = self
     options = {
-
+      verify_peer: true,
+      private_key: '/file/path.pem',
+      cert_chain: '/file/path.crt',
+      ciphers: 'ECDHE-RSA-AES128-GCM-SHA256:ECDHE-RSA-RC4-SHA:ECDHE-RSA-AES128-SHA:AES128-GCM-SHA256:RC4:HIGH:!MD5:!aNULL:!EDH:!CAMELLIA:@STRENGTH' # (default)
     }
     @ssl_layer = RubyTls::SSL::Box.new(is_server, callback_obj, options)
   end

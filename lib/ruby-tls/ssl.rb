@@ -273,7 +273,7 @@ keystr
                     set_certificate(options[:cert_chain]  || SSL::DEFAULT_CERT)
                 end
 
-                SSL.SSL_CTX_set_cipher_list(@ssl_ctx, CIPHERS)
+                SSL.SSL_CTX_set_cipher_list(@ssl_ctx, options[:ciphers] || CIPHERS)
 
                 if @is_server
                     SSL.SSL_CTX_sess_set_cache_size(@ssl_ctx, 128)
