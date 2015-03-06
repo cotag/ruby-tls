@@ -44,7 +44,7 @@ module RubyTls
         attach_function :BIO_new_mem_buf, [:string, :buffer_length], :bio
         attach_function :EVP_PKEY_free, [:evp_key], :void
 
-        callback :pem_password_cb, [:buffer_out, :buffer_length, :read_write_flag, :user_data], :pass_length
+        callback :pem_password_cb, [:pointer, :buffer_length, :read_write_flag, :user_data], :pass_length
         attach_function :PEM_read_bio_PrivateKey, [:bio, :evp_key_pointer, :pem_password_cb, :user_data], :evp_key
 
         attach_function :X509_free, [:x509], :void
@@ -196,8 +196,8 @@ uw73m4YIGI0Zw2XdBpiOGkx2H56Kya6mJJe/5XORZedh1wpI7zki01tHYbcy
 keystr
 
 
-        BuiltinPasswdCB = FFI::Function.new(:int, [:buffer_out, :int, :int, :pointer]) do |buffer, len, flag, data|
-            buffer.put_string(0, 'kittycat')
+        BuiltinPasswdCB = FFI::Function.new(:int, [:pointer, :int, :int, :pointer]) do |buffer, len, flag, data|
+            buffer.write_string('kittycat')
             8
         end
 
