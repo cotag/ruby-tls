@@ -225,12 +225,12 @@ keystr
 
 
             # Setup multi-threaded support
-            SSL_LOCKS = []
-            num_locks = self.CRYPTO_num_locks
-            num_locks.times { SSL_LOCKS << Mutex.new }
+            #SSL_LOCKS = []
+            #num_locks = self.CRYPTO_num_locks
+            #num_locks.times { SSL_LOCKS << Mutex.new }
 
-            self.CRYPTO_set_locking_callback(LockingCB)
-            self.CRYPTO_set_id_callback(ThreadIdCB)
+            #self.CRYPTO_set_locking_callback(LockingCB)
+            #self.CRYPTO_set_id_callback(ThreadIdCB)
 
 
             bio = self.BIO_new_mem_buf(PrivateMaterials, PrivateMaterials.bytesize)
