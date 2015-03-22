@@ -296,10 +296,10 @@ keystr
                 :pointer, :pointer, :pointer, :string, :uint, :pointer
             ]) do |ssl_p, out, outlen, inp, inlen, arg|
                 ssl = Box::InstanceLookup[ssl_p.address]
+                return SSL::SSL_TLSEXT_ERR_ALERT_FATAL unless ssl
+
                 protos = ssl.context.alpn_str
-
                 status = SSL.SSL_select_next_proto(out, outlen, protos, protos.length, inp, inlen)
-
                 ssl.negotiated
 
                 case status
