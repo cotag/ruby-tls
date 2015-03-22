@@ -147,7 +147,30 @@ module RubyTls
         attach_function :SSL_CTX_set_cipher_list, [:ssl_ctx, :string], :int
         attach_function :SSL_CTX_set_session_id_context, [:ssl_ctx, :string, :buffer_length], :int
 
-        # TODO:: SSL_CTX_set_alpn_protos
+        # OpenSSL before 1.0.2 do not have these methods
+        begin
+            attach_function :SSL_CTX_set_alpn_protos, [:ssl_ctx, :string, :uint], :int
+
+            SSL_TLSEXT_ERR_OK = 0
+            SSL_TLSEXT_ERR_ALERT_WARNING = 1
+            SSL_TLSEXT_ERR_ALERT_FATAL = 2
+            SSL_TLSEXT_ERR_NOACK = 3
+
+            OPENSSL_NPN_UNSUPPORTED = 0
+            OPENSSL_NPN_NEGOTIATED = 1
+            OPENSSL_NPN_NO_OVERLAP = 2
+
+            attach_function :SSL_select_next_proto, [:pointer, :pointer, :string, :uint, :string, :uint], :int
+
+                                       # array of str, unit8 out,uint8 in,        *arg
+            callback :alpn_select_cb, [:ssl, :pointer, :pointer, :string, :uint, :pointer], :int
+            attach_function :SSL_CTX_set_alpn_select_cb, [:ssl_ctx, :alpn_select_cb, :pointer], :void
+
+            attach_function :SSL_get0_alpn_selected, [:ssl, :pointer, :pointer], :void
+            ALPN_SUPPORTED = true
+        rescue FFI::NotFoundError
+            ALPN_SUPPORTED = false
+        end
 
 
         # Deconstructor
@@ -201,19 +224,23 @@ keystr
             8
         end
 
-        CRYPTO_LOCK = 0x1
-        LockingCB = FFI::Function.new(:void, [:int, :int, :string, :int]) do |mode, type, file, line|
-            if (mode & CRYPTO_LOCK) != 0
-                SSL_LOCKS[type].lock
-            else
-                # Unlock a lock
-                SSL_LOCKS[type].unlock
-            end
-        end
+        # Locking isn't provided as long as all writes are done on the same thread.
+        # This is my main use case. Happy to enable it if someone requires it and can
+        # get it to work on MRI Ruby (Currently only works on JRuby and Rubinius)
+        # as MRI callbacks occur on a thread pool?
 
-        ThreadIdCB = FFI::Function.new(:ulong, []) do
-            Thread.current.object_id
-        end
+        #CRYPTO_LOCK = 0x1
+        #LockingCB = FFI::Function.new(:void, [:int, :int, :string, :int]) do |mode, type, file, line|
+        #    if (mode & CRYPTO_LOCK) != 0
+        #        SSL_LOCKS[type].lock
+        #    else
+                # Unlock a lock
+        #        SSL_LOCKS[type].unlock
+        #    end
+        #end
+        #ThreadIdCB = FFI::Function.new(:ulong, []) do
+        #    Thread.current.object_id
+        #end
 
 
         # INIT CODE
@@ -262,6 +289,29 @@ keystr
             CIPHERS = 'ECDHE-RSA-AES128-GCM-SHA256:ECDHE-RSA-RC4-SHA:ECDHE-RSA-AES128-SHA:AES128-GCM-SHA256:RC4:HIGH:!MD5:!aNULL:!EDH:!CAMELLIA:@STRENGTH'.freeze
             SESSION = 'ruby-tls'.freeze
 
+
+            ALPN_LOOKUP = ThreadSafe::Cache.new
+            ALPN_Select_CB = FFI::Function.new(:int, [
+                # array of str, unit8 out,uint8 in,        *arg
+                :pointer, :pointer, :pointer, :string, :uint, :pointer
+            ]) do |ssl_p, out, outlen, inp, inlen, arg|
+                ssl = Box::InstanceLookup[ssl_p.address]
+                protos = ssl.context.alpn_str
+
+                status = SSL.SSL_select_next_proto(out, outlen, protos, protos.length, inp, inlen)
+
+                ssl.negotiated
+
+                case status
+                when SSL::OPENSSL_NPN_UNSUPPORTED
+                    SSL::SSL_TLSEXT_ERR_ALERT_FATAL
+                when SSL::OPENSSL_NPN_NEGOTIATED
+                    SSL::SSL_TLSEXT_ERR_OK
+                when SSL::OPENSSL_NPN_NO_OVERLAP
+                    SSL::SSL_TLSEXT_ERR_ALERT_WARNING
+                end
+            end
+
             def initialize(server, options = {})
                 @is_server = server
                 @ssl_ctx = SSL.SSL_CTX_new(server ? SSL.SSLv23_server_method : SSL.SSLv23_client_method)
@@ -274,16 +324,27 @@ keystr
                 end
 
                 SSL.SSL_CTX_set_cipher_list(@ssl_ctx, options[:ciphers] || CIPHERS)
+                @alpn_set = false
 
                 if @is_server
                     SSL.SSL_CTX_sess_set_cache_size(@ssl_ctx, 128)
                     SSL.SSL_CTX_set_session_id_context(@ssl_ctx, SESSION, 8)
+
+                    if SSL::ALPN_SUPPORTED && options[:protocols]
+                        @alpn_str = Context.build_alpn_string(options[:protocols])
+                        SSL.SSL_CTX_set_alpn_select_cb(@ssl_ctx, ALPN_Select_CB, nil)
+                        @alpn_set = true
+                    end
                 else
                     set_private_key(options[:private_key])
                     set_certificate(options[:cert_chain])
-                end
 
-                # TODO:: Check for ALPN support
+                    # Check for ALPN support
+                    if SSL::ALPN_SUPPORTED && options[:protocols]
+                        protocols = Context.build_alpn_string(options[:protocols])
+                        @alpn_set = SSL.SSL_CTX_set_alpn_protos(@ssl_ctx, protocols, protocols.length) == 0
+                    end
+                end
             end
 
             def cleanup
@@ -295,10 +356,22 @@ keystr
 
             attr_reader :is_server
             attr_reader :ssl_ctx
+            attr_reader :alpn_set
+            attr_reader :alpn_str
 
 
             private
 
+
+            def self.build_alpn_string(protos)
+                protocols = ''.force_encoding('ASCII-8BIT')
+                protos.each do |prot|
+                    protocol = prot.to_s
+                    protocols << protocol.length
+                    protocols << protocol
+                end
+                protocols
+            end
 
             def set_private_key(key)
                 err = if key.is_a? FFI::Pointer
@@ -338,6 +411,8 @@ keystr
 
 
         class Box
+            InstanceLookup = ThreadSafe::Cache.new
+
             READ_BUFFER = 2048
 
             SSL_VERIFY_PEER = 0x01
@@ -347,6 +422,7 @@ keystr
 
                 @handshake_completed = false
                 @handshake_signaled = false
+                @negotiated = false
                 @transport = transport
 
                 @read_buffer = FFI::MemoryPointer.new(:char, READ_BUFFER, false)
@@ -360,11 +436,9 @@ keystr
 
                 @write_queue = []
 
-                # TODO:: if server && options[:alpn_string]
-                # SSL_CTX_set_alpn_select_cb
-
                 InstanceLookup[@ssl.address] = self
 
+                @alpn_fallback = options[:fallback]
                 if options[:verify_peer]
                     SSL.SSL_set_verify(@ssl, SSL_VERIFY_PEER | SSL_VERIFY_CLIENT_ONCE, VerifyCB)
                 end
@@ -374,12 +448,29 @@ keystr
 
 
             attr_reader :is_server
+            attr_reader :context
             attr_reader :handshake_completed
 
 
             def get_peer_cert
                 return '' unless @ready
                 SSL.SSL_get_peer_certificate(@ssl)
+            end
+
+            def negotiated_protocol
+                return nil unless @context.alpn_set
+
+                proto = FFI::MemoryPointer.new(:pointer, 1, true)
+                len = FFI::MemoryPointer.new(:uint, 1, true)
+                SSL.SSL_get0_alpn_selected(@ssl, proto, len)
+
+                resp = proto.get_pointer(0)
+                if resp.address == 0
+                    :failed
+                else
+                    length = len.get_uint(0)
+                    resp.read_string(length).to_sym
+                end
             end
 
             def start
@@ -435,7 +526,30 @@ keystr
 
             def signal_handshake
                 @handshake_signaled = true
-                @transport.handshake_cb
+
+                # Check protocol support here
+                if @context.alpn_set
+                    proto = negotiated_protocol
+
+                    if proto == :failed
+                        if @negotiated
+                            # We should shutdown if this is the case
+                            @transport.close_cb
+                            return
+                        elsif @alpn_fallback
+                            # Client or Server with a client that doesn't support ALPN
+                            proto = @alpn_fallback.to_sym
+                        end
+                    end
+                else
+                    proto = nil
+                end
+
+                @transport.handshake_cb(proto)
+            end
+
+            def negotiated
+                @negotiated = true
             end
 
             SSL_RECEIVED_SHUTDOWN = 2
@@ -474,8 +588,6 @@ keystr
                 end
             end
 
-
-            InstanceLookup = ThreadSafe::Cache.new
             VerifyCB = FFI::Function.new(:int, [:int, :pointer]) do |preverify_ok, x509_store|
                 x509 = SSL.X509_STORE_CTX_get_current_cert(x509_store)
                 ssl = SSL.X509_STORE_CTX_get_ex_data(x509_store, SSL.SSL_get_ex_data_X509_STORE_CTX_idx)
