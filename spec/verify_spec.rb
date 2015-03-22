@@ -30,7 +30,7 @@ describe RubyTls do
             @server.ssl.decrypt(data) unless @stop
         end
 
-        def handshake_cb
+        def handshake_cb(protocol)
             @client_data << 'ready'
         end
     end
@@ -71,7 +71,7 @@ describe RubyTls do
                     @client.ssl.decrypt(data) unless @stop
                 end
 
-                def handshake_cb
+                def handshake_cb(protocol)
                     @server_data << 'ready'
                 end
 
@@ -126,7 +126,7 @@ describe RubyTls do
                     @client.ssl.decrypt(data) unless @stop
                 end
 
-                def handshake_cb
+                def handshake_cb(protocol)
                     @server_data << 'ready'
                 end
 
