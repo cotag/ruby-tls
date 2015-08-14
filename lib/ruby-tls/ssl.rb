@@ -139,10 +139,10 @@ module RubyTls
             SSL_CTX_ctrl(ssl_ctx, SSL_CTRL_SET_SESS_CACHE_SIZE, op, nil)
         end
 
-        attach_function :SSL_CTX_use_PrivateKey_file, [:ssl_ctx, :string, :int], :int
+        attach_function :SSL_CTX_use_PrivateKey_file, [:ssl_ctx, :string, :int], :int, :blocking => true
         attach_function :SSL_CTX_use_PrivateKey, [:ssl_ctx, :pointer], :int
         attach_function :ERR_print_errors_fp, [:pointer], :void     # Pointer == File Handle
-        attach_function :SSL_CTX_use_certificate_chain_file, [:ssl_ctx, :string], :int
+        attach_function :SSL_CTX_use_certificate_chain_file, [:ssl_ctx, :string], :int, :blocking => true
         attach_function :SSL_CTX_use_certificate, [:ssl_ctx, :x509], :int
         attach_function :SSL_CTX_set_cipher_list, [:ssl_ctx, :string], :int
         attach_function :SSL_CTX_set_session_id_context, [:ssl_ctx, :string, :buffer_length], :int
