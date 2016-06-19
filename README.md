@@ -2,7 +2,7 @@
 
 Ruby-TLS decouples the management of encrypted communications, putting you in charge of the transport layer. It can be used as an alternative to Ruby's SSLSocket.
 
-[![Build Status](https://travis-ci.org/cotag/ruby-tls.png?branch=master)](https://travis-ci.org/cotag/ruby-tls)
+[![Build Status](https://travis-ci.org/cotag/ruby-tls.svg?branch=master)](https://travis-ci.org/cotag/ruby-tls)
 
 
 ## Install the gem
@@ -35,7 +35,8 @@ class transport
       cert_chain: '/file/path.crt',
       ciphers: 'ECDHE-RSA-AES128-GCM-SHA256:ECDHE-RSA-RC4-SHA:ECDHE-RSA-AES128-SHA:AES128-GCM-SHA256:RC4:HIGH:!MD5:!aNULL:!EDH:!CAMELLIA:@STRENGTH' # (default)
       # protocols: ["h2", "http/1.1"], # Can be used where OpenSSL >= 1.0.2 (Application Level Protocol negotiation)
-      # fallback: "http/1.1" # Optional fallback to a default protocol when either client or server doesn't support ALPN
+      # fallback: "http/1.1", # Optional fallback to a default protocol when either client or server doesn't support ALPN
+      # client_ca: '/file/path.pem'
     }
     @ssl_layer = RubyTls::SSL::Box.new(is_server, callback_obj, options)
   end
@@ -99,4 +100,3 @@ connection.send('client request')
 ## License and copyright
 
 MIT
-

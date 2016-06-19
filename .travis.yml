@@ -1,6 +1,6 @@
 language: ruby
 rvm:
-  - "2.1"
+  - "2.2"
   - ruby-head
   - rbx-2
   - jruby-20mode
