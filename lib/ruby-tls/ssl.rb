@@ -146,6 +146,8 @@ module RubyTls
         attach_function :SSL_CTX_use_certificate, [:ssl_ctx, :x509], :int
         attach_function :SSL_CTX_set_cipher_list, [:ssl_ctx, :string], :int
         attach_function :SSL_CTX_set_session_id_context, [:ssl_ctx, :string, :buffer_length], :int
+        attach_function :SSL_load_client_CA_file, [:string], :pointer
+        attach_function :SSL_CTX_set_client_CA_list, [:ssl_ctx, :pointer], :void
 
         # OpenSSL before 1.0.2 do not have these methods
         begin
@@ -322,6 +324,7 @@ keystr
                 if @is_server
                     set_private_key(options[:private_key] || SSL::DEFAULT_PRIVATE)
                     set_certificate(options[:cert_chain]  || SSL::DEFAULT_CERT)
+                    set_client_ca(options[:client_ca])
                 end
 
                 SSL.SSL_CTX_set_cipher_list(@ssl_ctx, options[:ciphers] || CIPHERS)
@@ -404,6 +407,18 @@ keystr
                 if err <= 0
                     cleanup
                     raise 'invalid certificate or file not found'
+                end
+            end
+
+            def set_client_ca(ca)
+                return unless ca
+
+                if File.file?(ca) && (ca_ptr = SSL.SSL_load_client_CA_file(ca))
+                    # there is no error checking provided by SSL_CTX_set_client_CA_list
+                    SSL.SSL_CTX_set_client_CA_list(@ssl_ctx, ca_ptr)
+                else
+                    cleanup
+                    raise 'invalid ca certificate or file not found'
                 end
             end
         end
