@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require 'ffi'
 require 'ffi-compiler/loader'
 require 'thread'
@@ -289,8 +291,8 @@ keystr
 
         class Context
             # Based on information from https://raymii.org/s/tutorials/Strong_SSL_Security_On_nginx.html
-            CIPHERS = 'EECDH+AESGCM:EDH+AESGCM:ECDHE-RSA-AES128-GCM-SHA256:AES256+EECDH:DHE-RSA-AES128-GCM-SHA256:AES256+EDH:ECDHE-RSA-AES256-GCM-SHA384:DHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-SHA384:ECDHE-RSA-AES128-SHA256:ECDHE-RSA-AES256-SHA:ECDHE-RSA-AES128-SHA:DHE-RSA-AES256-SHA256:DHE-RSA-AES128-SHA256:DHE-RSA-AES256-SHA:DHE-RSA-AES128-SHA:ECDHE-RSA-DES-CBC3-SHA:EDH-RSA-DES-CBC3-SHA:AES256-GCM-SHA384:AES128-GCM-SHA256:AES256-SHA256:AES128-SHA256:AES256-SHA:AES128-SHA:DES-CBC3-SHA:HIGH:!aNULL:!eNULL:!EXPORT:!DES:!MD5:!PSK:!RC4'.freeze
-            SESSION = 'ruby-tls'.freeze
+            CIPHERS = 'EECDH+AESGCM:EDH+AESGCM:ECDHE-RSA-AES128-GCM-SHA256:AES256+EECDH:DHE-RSA-AES128-GCM-SHA256:AES256+EDH:ECDHE-RSA-AES256-GCM-SHA384:DHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-SHA384:ECDHE-RSA-AES128-SHA256:ECDHE-RSA-AES256-SHA:ECDHE-RSA-AES128-SHA:DHE-RSA-AES256-SHA256:DHE-RSA-AES128-SHA256:DHE-RSA-AES256-SHA:DHE-RSA-AES128-SHA:ECDHE-RSA-DES-CBC3-SHA:EDH-RSA-DES-CBC3-SHA:AES256-GCM-SHA384:AES128-GCM-SHA256:AES256-SHA256:AES128-SHA256:AES256-SHA:AES128-SHA:DES-CBC3-SHA:HIGH:!aNULL:!eNULL:!EXPORT:!DES:!MD5:!PSK:!RC4'
+            SESSION = 'ruby-tls'
 
 
             ALPN_LOOKUP = ThreadSafe::Cache.new
@@ -368,7 +370,7 @@ keystr
 
 
             def self.build_alpn_string(protos)
-                protocols = ''.force_encoding('ASCII-8BIT')
+                protocols = String.new.force_encoding('ASCII-8BIT')
                 protos.each do |prot|
                     protocol = prot.to_s
                     protocols << protocol.length
@@ -677,7 +679,7 @@ keystr
             end
 
 
-            CIPHER_DISPATCH_FAILED = 'Cipher text dispatch failed'.freeze
+            CIPHER_DISPATCH_FAILED = 'Cipher text dispatch failed'
             def dispatch_cipher_text
                 begin
                     did_work = false
