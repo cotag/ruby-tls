@@ -3,7 +3,7 @@
 require 'ffi'
 require 'ffi-compiler/loader'
 require 'thread'
-require 'thread_safe'
+require 'concurrent'
 
 
 module RubyTls
@@ -89,9 +89,6 @@ module RubyTls
         # PutCiphertext
         attach_function :BIO_write, [:bio, :buffer_in, :buffer_length], :int
 
-        # SelectALPNCallback
-        # TODO:: SSL_select_next_proto
-
         # Deconstructor
         attach_function :SSL_get_shutdown, [:ssl], :int
         attach_function :SSL_shutdown, [:ssl], :int
@@ -105,9 +102,6 @@ module RubyTls
         attach_function :SSL_new, [:ssl_ctx], :ssl
                                              # r,   w
         attach_function :SSL_set_bio, [:ssl, :bio, :bio], :void
-
-        # TODO:: SSL_CTX_set_alpn_select_cb
-        # Will have to put a try catch around these and support when available
 
         attach_function :SSL_set_ex_data, [:ssl, :int, :string], :int
         callback :verify_callback, [:int, :x509], :int
@@ -123,8 +117,20 @@ module RubyTls
 
         # SSL Context Class
         # Constructor
-        attach_function :SSLv23_server_method, [], :pointer
-        attach_function :SSLv23_client_method, [], :pointer
+        begin
+            # Only available in OpenSSL 1.1
+            attach_function :TLS_server_method, [], :pointer
+            attach_function :TLS_client_method, [], :pointer
+        rescue FFI::NotFoundError
+            # Fallback for OpenSSL 1.0
+            attach_function :SSLv23_server_method, [], :pointer
+            attach_function :SSLv23_client_method, [], :pointer
+
+            class << SSL  # Change context to metaclass
+                alias_method :TLS_server_method, :SSLv23_server_method
+                alias_method :TLS_client_method, :SSLv23_client_method
+            end
+        end
         attach_function :SSL_CTX_new, [:pointer], :ssl_ctx
 
         attach_function :SSL_CTX_ctrl, [:ssl_ctx, :int, :ulong, :pointer], :long
@@ -152,29 +158,24 @@ module RubyTls
         attach_function :SSL_CTX_set_client_CA_list, [:ssl_ctx, :pointer], :void
 
         # OpenSSL before 1.0.2 do not have these methods
-        begin
-            attach_function :SSL_CTX_set_alpn_protos, [:ssl_ctx, :string, :uint], :int
+        attach_function :SSL_CTX_set_alpn_protos, [:ssl_ctx, :string, :uint], :int
 
-            SSL_TLSEXT_ERR_OK = 0
-            SSL_TLSEXT_ERR_ALERT_WARNING = 1
-            SSL_TLSEXT_ERR_ALERT_FATAL = 2
-            SSL_TLSEXT_ERR_NOACK = 3
+        SSL_TLSEXT_ERR_OK = 0
+        SSL_TLSEXT_ERR_ALERT_WARNING = 1
+        SSL_TLSEXT_ERR_ALERT_FATAL = 2
+        SSL_TLSEXT_ERR_NOACK = 3
 
-            OPENSSL_NPN_UNSUPPORTED = 0
-            OPENSSL_NPN_NEGOTIATED = 1
-            OPENSSL_NPN_NO_OVERLAP = 2
+        OPENSSL_NPN_UNSUPPORTED = 0
+        OPENSSL_NPN_NEGOTIATED = 1
+        OPENSSL_NPN_NO_OVERLAP = 2
 
-            attach_function :SSL_select_next_proto, [:pointer, :pointer, :string, :uint, :string, :uint], :int
+        attach_function :SSL_select_next_proto, [:pointer, :pointer, :string, :uint, :string, :uint], :int
 
-                                       # array of str, unit8 out,uint8 in,        *arg
-            callback :alpn_select_cb, [:ssl, :pointer, :pointer, :string, :uint, :pointer], :int
-            attach_function :SSL_CTX_set_alpn_select_cb, [:ssl_ctx, :alpn_select_cb, :pointer], :void
+                                   # array of str, unit8 out,uint8 in,        *arg
+        callback :alpn_select_cb, [:ssl, :pointer, :pointer, :string, :uint, :pointer], :int
+        attach_function :SSL_CTX_set_alpn_select_cb, [:ssl_ctx, :alpn_select_cb, :pointer], :void
 
-            attach_function :SSL_get0_alpn_selected, [:ssl, :pointer, :pointer], :void
-            ALPN_SUPPORTED = true
-        rescue FFI::NotFoundError
-            ALPN_SUPPORTED = false
-        end
+        attach_function :SSL_get0_alpn_selected, [:ssl, :pointer, :pointer], :void
 
 
         # Deconstructor
@@ -289,95 +290,8 @@ keystr
         SSL_OP_ALL = 0x80000BFF
         SSL_FILETYPE_PEM = 1
 
-        class Context
-            # Based on information from https://raymii.org/s/tutorials/Strong_SSL_Security_On_nginx.html
-            CIPHERS = 'EECDH+AESGCM:EDH+AESGCM:ECDHE-RSA-AES128-GCM-SHA256:AES256+EECDH:DHE-RSA-AES128-GCM-SHA256:AES256+EDH:ECDHE-RSA-AES256-GCM-SHA384:DHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-SHA384:ECDHE-RSA-AES128-SHA256:ECDHE-RSA-AES256-SHA:ECDHE-RSA-AES128-SHA:DHE-RSA-AES256-SHA256:DHE-RSA-AES128-SHA256:DHE-RSA-AES256-SHA:DHE-RSA-AES128-SHA:ECDHE-RSA-DES-CBC3-SHA:EDH-RSA-DES-CBC3-SHA:AES256-GCM-SHA384:AES128-GCM-SHA256:AES256-SHA256:AES128-SHA256:AES256-SHA:AES128-SHA:DES-CBC3-SHA:HIGH:!aNULL:!eNULL:!EXPORT:!DES:!MD5:!PSK:!RC4'
-            SESSION = 'ruby-tls'
-
-
-            ALPN_LOOKUP = ThreadSafe::Cache.new
-            ALPN_Select_CB = FFI::Function.new(:int, [
-                # array of str, unit8 out,uint8 in,        *arg
-                :pointer, :pointer, :pointer, :string, :uint, :pointer
-            ]) do |ssl_p, out, outlen, inp, inlen, arg|
-                ssl = Box::InstanceLookup[ssl_p.address]
-                return SSL::SSL_TLSEXT_ERR_ALERT_FATAL unless ssl
-
-                protos = ssl.context.alpn_str
-                status = SSL.SSL_select_next_proto(out, outlen, protos, protos.length, inp, inlen)
-                ssl.negotiated
-
-                case status
-                when SSL::OPENSSL_NPN_UNSUPPORTED
-                    SSL::SSL_TLSEXT_ERR_ALERT_FATAL
-                when SSL::OPENSSL_NPN_NEGOTIATED
-                    SSL::SSL_TLSEXT_ERR_OK
-                when SSL::OPENSSL_NPN_NO_OVERLAP
-                    SSL::SSL_TLSEXT_ERR_ALERT_WARNING
-                end
-            end
-
-            def initialize(server, options = {})
-                @is_server = server
-                @ssl_ctx = SSL.SSL_CTX_new(server ? SSL.SSLv23_server_method : SSL.SSLv23_client_method)
-                SSL.SSL_CTX_set_options(@ssl_ctx, SSL::SSL_OP_ALL)
-                SSL.SSL_CTX_set_mode(@ssl_ctx, SSL::SSL_MODE_RELEASE_BUFFERS)
-
-                if @is_server
-                    set_private_key(options[:private_key] || SSL::DEFAULT_PRIVATE)
-                    set_certificate(options[:cert_chain]  || SSL::DEFAULT_CERT)
-                    set_client_ca(options[:client_ca])
-                end
-
-                SSL.SSL_CTX_set_cipher_list(@ssl_ctx, options[:ciphers] || CIPHERS)
-                @alpn_set = false
-
-                if @is_server
-                    SSL.SSL_CTX_sess_set_cache_size(@ssl_ctx, 128)
-                    SSL.SSL_CTX_set_session_id_context(@ssl_ctx, SESSION, 8)
-
-                    if SSL::ALPN_SUPPORTED && options[:protocols]
-                        @alpn_str = Context.build_alpn_string(options[:protocols])
-                        SSL.SSL_CTX_set_alpn_select_cb(@ssl_ctx, ALPN_Select_CB, nil)
-                        @alpn_set = true
-                    end
-                else
-                    set_private_key(options[:private_key])
-                    set_certificate(options[:cert_chain])
-
-                    # Check for ALPN support
-                    if SSL::ALPN_SUPPORTED && options[:protocols]
-                        protocols = Context.build_alpn_string(options[:protocols])
-                        @alpn_set = SSL.SSL_CTX_set_alpn_protos(@ssl_ctx, protocols, protocols.length) == 0
-                    end
-                end
-            end
-
-            def cleanup
-                if @ssl_ctx
-                    SSL.SSL_CTX_free(@ssl_ctx)
-                    @ssl_ctx = nil
-                end
-            end
-
-            attr_reader :is_server
-            attr_reader :ssl_ctx
-            attr_reader :alpn_set
-            attr_reader :alpn_str
-
-
-            private
-
-
-            def self.build_alpn_string(protos)
-                protocols = String.new.force_encoding('ASCII-8BIT')
-                protos.each do |prot|
-                    protocol = prot.to_s
-                    protocols << protocol.length
-                    protocols << protocol
-                end
-                protocols
-            end
+        module SetCertificates
+            protected
 
             def set_private_key(key)
                 err = if key.is_a? FFI::Pointer
@@ -425,15 +339,107 @@ keystr
             end
         end
 
+        class Context
+            include SetCertificates
+
+            # Based on information from https://raymii.org/s/tutorials/Strong_SSL_Security_On_nginx.html
+            CIPHERS = 'EECDH+AESGCM:EDH+AESGCM:ECDHE-RSA-AES128-GCM-SHA256:AES256+EECDH:DHE-RSA-AES128-GCM-SHA256:AES256+EDH:ECDHE-RSA-AES256-GCM-SHA384:DHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-SHA384:ECDHE-RSA-AES128-SHA256:ECDHE-RSA-AES256-SHA:ECDHE-RSA-AES128-SHA:DHE-RSA-AES256-SHA256:DHE-RSA-AES128-SHA256:DHE-RSA-AES256-SHA:DHE-RSA-AES128-SHA:ECDHE-RSA-DES-CBC3-SHA:EDH-RSA-DES-CBC3-SHA:AES256-GCM-SHA384:AES128-GCM-SHA256:AES256-SHA256:AES128-SHA256:AES256-SHA:AES128-SHA:DES-CBC3-SHA:HIGH:!aNULL:!eNULL:!EXPORT:!DES:!MD5:!PSK:!RC4'
+            SESSION = 'ruby-tls'
+
+
+            ALPN_LOOKUP = ::Concurrent::Map.new
+            ALPN_Select_CB = FFI::Function.new(:int, [
+                # array of str, unit8 out,uint8 in,        *arg
+                :pointer, :pointer, :pointer, :string, :uint, :pointer
+            ]) do |ssl_p, out, outlen, inp, inlen, arg|
+                ssl = Box::InstanceLookup[ssl_p.address]
+                return SSL::SSL_TLSEXT_ERR_ALERT_FATAL unless ssl
+
+                protos = ssl.context.alpn_str
+                status = SSL.SSL_select_next_proto(out, outlen, protos, protos.length, inp, inlen)
+                ssl.negotiated
+
+                case status
+                when SSL::OPENSSL_NPN_UNSUPPORTED
+                    SSL::SSL_TLSEXT_ERR_ALERT_FATAL
+                when SSL::OPENSSL_NPN_NEGOTIATED
+                    SSL::SSL_TLSEXT_ERR_OK
+                when SSL::OPENSSL_NPN_NO_OVERLAP
+                    SSL::SSL_TLSEXT_ERR_ALERT_WARNING
+                end
+            end
+
+            def initialize(server, options = {})
+                @is_server = server
+                @ssl_ctx = SSL.SSL_CTX_new(server ? SSL.TLS_server_method : SSL.TLS_client_method)
+                SSL.SSL_CTX_set_options(@ssl_ctx, SSL::SSL_OP_ALL)
+                SSL.SSL_CTX_set_mode(@ssl_ctx, SSL::SSL_MODE_RELEASE_BUFFERS)
+
+                if @is_server
+                    set_private_key(options[:private_key] || SSL::DEFAULT_PRIVATE)
+                    set_certificate(options[:cert_chain]  || SSL::DEFAULT_CERT)
+                    set_client_ca(options[:client_ca])
+                end
+
+                SSL.SSL_CTX_set_cipher_list(@ssl_ctx, options[:ciphers] || CIPHERS)
+                @alpn_set = false
+
+                if @is_server
+                    SSL.SSL_CTX_sess_set_cache_size(@ssl_ctx, 128)
+                    SSL.SSL_CTX_set_session_id_context(@ssl_ctx, SESSION, 8)
+
+                    if options[:protocols]
+                        @alpn_str = Context.build_alpn_string(options[:protocols])
+                        SSL.SSL_CTX_set_alpn_select_cb(@ssl_ctx, ALPN_Select_CB, nil)
+                        @alpn_set = true
+                    end
+                else
+                    set_private_key(options[:private_key])
+                    set_certificate(options[:cert_chain])
+
+                    # Check for ALPN support
+                    if options[:protocols]
+                        protocols = Context.build_alpn_string(options[:protocols])
+                        @alpn_set = SSL.SSL_CTX_set_alpn_protos(@ssl_ctx, protocols, protocols.length) == 0
+                    end
+                end
+            end
+
+            def cleanup
+                if @ssl_ctx
+                    SSL.SSL_CTX_free(@ssl_ctx)
+                    @ssl_ctx = nil
+                end
+            end
+
+            attr_reader :is_server
+            attr_reader :ssl_ctx
+            attr_reader :alpn_set
+            attr_reader :alpn_str
+
+
+            def self.build_alpn_string(protos)
+                protocols = String.new.force_encoding('ASCII-8BIT')
+                protos.each do |prot|
+                    protocol = prot.to_s
+                    protocols << protocol.length
+                    protocols << protocol
+                end
+                protocols
+            end
+        end
+
 
 
 
         class Box
-            InstanceLookup = ThreadSafe::Cache.new
+            InstanceLookup = ::Concurrent::Map.new
 
             READ_BUFFER = 2048
 
+            SSL_VERIFY_NONE = 0
             SSL_VERIFY_PEER = 0x01
+            SSL_VERIFY_FAIL_IF_NO_PEER_CERT = 0x02
             SSL_VERIFY_CLIENT_ONCE = 0x04
             def initialize(server, transport, options = {})
                 @ready = true
@@ -458,7 +464,7 @@ keystr
 
                 @alpn_fallback = options[:fallback]
                 if options[:verify_peer]
-                    SSL.SSL_set_verify(@ssl, SSL_VERIFY_PEER | SSL_VERIFY_CLIENT_ONCE, VerifyCB)
+                    SSL.SSL_set_verify(@ssl, SSL_VERIFY_PEER | SSL_VERIFY_CLIENT_ONCE | SSL_VERIFY_FAIL_IF_NO_PEER_CERT, VerifyCB)
                 end
 
                 SSL.SSL_connect(@ssl) unless server
