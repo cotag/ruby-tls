@@ -20,12 +20,19 @@ module RubyTls::SSL
     attach_function :BIO_meth_set_destroy, [:bio_methods_ptr, :bio_destroy_cb], :int
 
     attach_function :BIO_set_init, [:bio, :int], :void
-    attach_function :BIO_set_data, [:bio, :pointer], :void
-    attach_function :BIO_get_data, [:bio], :pointer
-
 
     attach_function :DTLS_server_method, [], :pointer
     attach_function :DTLS_client_method, [], :pointer
+
+
+    # Curves are automatically enabled on OpenSSL V1.1
+    # Earlier versions require them to be enabled manually
+    begin
+        attach_function :SSL_CTX_set_ecdh_auto, [:ssl_ctx, :int], :int
+        EnableCurves = true
+    rescue FFI::NotFoundError
+        EnableCurves = false
+    end
 
 
     module DTLS
@@ -50,44 +57,58 @@ module RubyTls::SSL
 
         @init_performed ||= false
         unless @init_performed
-            bio_methods_ptr = SSL.BIO_meth_new(BIO_TYPE_FILTER | SSL.BIO_get_new_index, 'ruby dtls filter')
-            if bio_methods_ptr.null?
+            BioMethodsPtr = SSL.BIO_meth_new(BIO_TYPE_FILTER | SSL.BIO_get_new_index, 'ruby dtls filter')
+            if BioMethodsPtr.null?
                 raise 'unable to init DTLS BIO - NULL pointer'
             end
 
-            SSL.BIO_meth_set_write(bio_methods_ptr, BioWriteCB)
-            SSL.BIO_meth_set_ctrl(bio_methods_ptr, BioCtrlCB)
-            SSL.BIO_meth_set_create(bio_methods_ptr, BioCreateCB)
-            SSL.BIO_meth_set_destroy(bio_methods_ptr, BioDestroyCB)
+            SSL.BIO_meth_set_write(BioMethodsPtr, BioWriteCB)
+            SSL.BIO_meth_set_ctrl(BioMethodsPtr, BioCtrlCB)
+            SSL.BIO_meth_set_create(BioMethodsPtr, BioCreateCB)
+            SSL.BIO_meth_set_destroy(BioMethodsPtr, BioDestroyCB)
 
             @init_performed = true
         end
 
 
-        class Box
-            InstanceLookup = ::Concurrent::Map.new
-            DTLS_MTU = 1472
-
-
-        end
-
-
 
         class Context
-            CIPHERS = "ALL:NULL:eNULL:aNULL"
+            CIPHERS = 'ALL:NULL:eNULL:aNULL'
+            SESSION = 'ruby-tls'
 
             def initialize(server, options = {})
                 @is_server = server
                 @ssl_ctx = SSL.SSL_CTX_new(server ? SSL.DTLS_server_method : SSL.DTLS_client_method)
 
+                SSL.SSL_CTX_set_cipher_list(@ssl_ctx, options[:ciphers] || CIPHERS)
+                @alpn_set = false
+
                 if @is_server
                     set_private_key(options[:private_key] || SSL::DEFAULT_PRIVATE)
                     set_certificate(options[:cert_chain]  || SSL::DEFAULT_CERT)
                     set_client_ca(options[:client_ca])
+
+                    SSL.SSL_CTX_sess_set_cache_size(@ssl_ctx, 128)
+                    SSL.SSL_CTX_set_session_id_context(@ssl_ctx, SESSION, 8)
+
+                    if options[:protocols]
+                        @alpn_str = Context.build_alpn_string(options[:protocols])
+                        SSL.SSL_CTX_set_alpn_select_cb(@ssl_ctx, ALPN_Select_CB, nil)
+                        @alpn_set = true
+                    end
+                else
+                    set_private_key(options[:private_key])
+                    set_certificate(options[:cert_chain])
+
+                    # Check for ALPN support
+                    if options[:protocols]
+                        protocols = Context.build_alpn_string(options[:protocols])
+                        @alpn_set = SSL.SSL_CTX_set_alpn_protos(@ssl_ctx, protocols, protocols.length) == 0
+                    end
                 end
 
-                SSL.SSL_CTX_set_cipher_list(@ssl_ctx, options[:ciphers] || CIPHERS)
-                @alpn_set = false
+                # NOTE:: Enable 
+                SSL.SSL_CTX_set_ecdh_auto(@ssl_ctx, 1) if SSL::EnableCurves
             end
         end
     end

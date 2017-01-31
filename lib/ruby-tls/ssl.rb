@@ -53,6 +53,7 @@ module RubyTls
         attach_function :PEM_read_bio_X509, [:bio, :x509_pointer, :pem_password_cb, :user_data], :x509
 
         attach_function :BIO_free, [:bio], :int
+        attach_function :BIO_push, [:bio, :bio], :void
 
         # CONSTANTS
         SSL_ST_OK = 0x03
@@ -106,6 +107,7 @@ module RubyTls
         attach_function :SSL_set_ex_data, [:ssl, :int, :string], :int
         callback :verify_callback, [:int, :x509], :int
         attach_function :SSL_set_verify, [:ssl, :int, :verify_callback], :void
+        attach_function :SSL_set_read_ahead, [:ssl, :int], :void
         attach_function :SSL_connect, [:ssl], :int
 
         # Verify callback
@@ -374,17 +376,14 @@ keystr
                 @ssl_ctx = SSL.SSL_CTX_new(server ? SSL.TLS_server_method : SSL.TLS_client_method)
                 SSL.SSL_CTX_set_options(@ssl_ctx, SSL::SSL_OP_ALL)
                 SSL.SSL_CTX_set_mode(@ssl_ctx, SSL::SSL_MODE_RELEASE_BUFFERS)
+                SSL.SSL_CTX_set_cipher_list(@ssl_ctx, options[:ciphers] || CIPHERS)
+                @alpn_set = false
 
                 if @is_server
                     set_private_key(options[:private_key] || SSL::DEFAULT_PRIVATE)
                     set_certificate(options[:cert_chain]  || SSL::DEFAULT_CERT)
                     set_client_ca(options[:client_ca])
-                end
 
-                SSL.SSL_CTX_set_cipher_list(@ssl_ctx, options[:ciphers] || CIPHERS)
-                @alpn_set = false
-
-                if @is_server
                     SSL.SSL_CTX_sess_set_cache_size(@ssl_ctx, 128)
                     SSL.SSL_CTX_set_session_id_context(@ssl_ctx, SESSION, 8)
 
@@ -441,8 +440,9 @@ keystr
             SSL_VERIFY_PEER = 0x01
             SSL_VERIFY_FAIL_IF_NO_PEER_CERT = 0x02
             SSL_VERIFY_CLIENT_ONCE = 0x04
-            def initialize(server, transport, options = {})
+            def initialize(server, transport, dtls: false, **options)
                 @ready = true
+                @dtls = dtls
 
                 @handshake_completed = false
                 @handshake_signaled = false
@@ -453,10 +453,20 @@ keystr
 
                 @is_server = server
                 @context = Context.new(server, options)
+                @ssl = SSL.SSL_new(@context.ssl_ctx)
+
                 @bioRead = SSL.BIO_new(SSL.BIO_s_mem)
                 @bioWrite = SSL.BIO_new(SSL.BIO_s_mem)
-                @ssl = SSL.SSL_new(@context.ssl_ctx)
-                SSL.SSL_set_bio(@ssl, @bioRead, @bioWrite)
+
+                if dtls
+                    SSL.SSL_set_read_ahead(@ssl, 1)
+
+                    @bioFilter = SSL.BIO_new(SSL::DTLS::BioMethodsPtr)
+                    SSL.BIO_push(@bioFilter, @bioWrite)
+                    SSL.SSL_set_bio(@ssl, @bioRead, @bioFilter)
+                else
+                    SSL.SSL_set_bio(@ssl, @bioRead, @bioWrite)
+                end
 
                 @write_queue = []
 
