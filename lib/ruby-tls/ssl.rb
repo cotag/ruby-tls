@@ -109,6 +109,10 @@ module RubyTls
         attach_function :SSL_set_verify, [:ssl, :int, :verify_callback], :void
         attach_function :SSL_set_read_ahead, [:ssl, :int], :void
         attach_function :SSL_connect, [:ssl], :int
+        attach_function :SSL_set_options, [:ssl, :long], :long
+        SSL_OP_SINGLE_ECDH_USE = 0x00080000
+        SSL_OP_SINGLE_DH_USE   = 0x00100000
+        SSL_OP_COOKIE_EXCHANGE = 0x00002000
 
         # Verify callback
         attach_function :X509_STORE_CTX_get_current_cert, [:pointer], :x509
@@ -464,6 +468,12 @@ keystr
                     @bioFilter = SSL.BIO_new(SSL::DTLS::BioMethodsPtr)
                     SSL.BIO_push(@bioFilter, @bioWrite)
                     SSL.SSL_set_bio(@ssl, @bioRead, @bioFilter)
+
+                    if server
+                        SSL.SSL_set_options(@ssl, SSL_OP_SINGLE_ECDH_USE | SSL_OP_SINGLE_DH_USE | SSL_OP_COOKIE_EXCHANGE)
+                    else
+                        SSL.SSL_set_options(@ssl, SSL_OP_SINGLE_ECDH_USE | SSL_OP_SINGLE_DH_USE)
+                    end
                 else
                     SSL.SSL_set_bio(@ssl, @bioRead, @bioWrite)
                 end

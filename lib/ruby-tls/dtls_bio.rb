@@ -24,6 +24,14 @@ module RubyTls::SSL
     attach_function :DTLS_server_method, [], :pointer
     attach_function :DTLS_client_method, [], :pointer
 
+    #                                  cookie str  str length  ret 1 on success
+    callback :cookie_generate_cb, [:ssl, :pointer, :pointer], :int
+    attach_function :SSL_CTX_set_cookie_generate_cb, [:ssl_ctx, :cookie_generate_cb], :void
+
+    #                                cookie str  str length  ret 1 on success
+    callback :cookie_verify_cb, [:ssl, :pointer, :uint], :int
+    attach_function :SSL_CTX_set_cookie_verify_cb, [:ssl_ctx, :cookie_verify_cb], :void
+
 
     # Curves are automatically enabled on OpenSSL V1.1
     # Earlier versions require them to be enabled manually
@@ -93,7 +101,7 @@ module RubyTls::SSL
 
                     if options[:protocols]
                         @alpn_str = Context.build_alpn_string(options[:protocols])
-                        SSL.SSL_CTX_set_alpn_select_cb(@ssl_ctx, ALPN_Select_CB, nil)
+                        SSL.SSL_CTX_set_alpn_select_cb(@ssl_ctx, SSL::Context::ALPN_Select_CB, nil)
                         @alpn_set = true
                     end
                 else
