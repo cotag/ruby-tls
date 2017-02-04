@@ -3,7 +3,7 @@
 require 'ffi'
 require 'ffi-compiler/loader'
 require 'thread'
-require 'thread_safe'
+require 'concurrent'
 
 
 module RubyTls
@@ -139,6 +139,14 @@ module RubyTls
         SSL_CTRL_SET_SESS_CACHE_SIZE = 42
         def self.SSL_CTX_sess_set_cache_size(ssl_ctx, op)
             SSL_CTX_ctrl(ssl_ctx, SSL_CTRL_SET_SESS_CACHE_SIZE, op, nil)
+        end
+
+        attach_function :SSL_ctrl, [:ssl, :int, :long, :pointer], :long
+        SSL_CTRL_SET_TLSEXT_HOSTNAME = 55
+        TLSEXT_NAMETYPE_host_name = 0
+        def self.SSL_set_tlsext_host_name(ssl, host_name)
+            name = FFI::MemoryPointer.from_string(host_name)
+            SSL_ctrl(ssl, SSL_CTRL_SET_TLSEXT_HOSTNAME, TLSEXT_NAMETYPE_host_name, name)
         end
 
         attach_function :SSL_CTX_use_PrivateKey_file, [:ssl_ctx, :string, :int], :int, :blocking => true
@@ -295,7 +303,7 @@ keystr
             SESSION = 'ruby-tls'
 
 
-            ALPN_LOOKUP = ThreadSafe::Cache.new
+            ALPN_LOOKUP = ::Concurrent::Map.new
             ALPN_Select_CB = FFI::Function.new(:int, [
                 # array of str, unit8 out,uint8 in,        *arg
                 :pointer, :pointer, :pointer, :string, :uint, :pointer
@@ -429,7 +437,7 @@ keystr
 
 
         class Box
-            InstanceLookup = ThreadSafe::Cache.new
+            InstanceLookup = ::Concurrent::Map.new
 
             READ_BUFFER = 2048
 
@@ -459,6 +467,12 @@ keystr
                 @alpn_fallback = options[:fallback]
                 if options[:verify_peer]
                     SSL.SSL_set_verify(@ssl, SSL_VERIFY_PEER | SSL_VERIFY_CLIENT_ONCE, VerifyCB)
+                end
+
+                # Add Server Name Indication (SNI) for client connections
+                # TODO:: Server support for SNI
+                if !server && options[:host_name]
+                    SSL.SSL_set_tlsext_host_name(@ssl, options[:host_name])
                 end
 
                 SSL.SSL_connect(@ssl) unless server

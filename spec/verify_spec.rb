@@ -6,7 +6,7 @@ describe RubyTls do
     class Client2
         def initialize(client_data, dir)
             @client_data = client_data
-            @ssl = RubyTls::SSL::Box.new(false, self, private_key: dir + 'client.key', cert_chain: dir + 'client.crt')
+            @ssl = RubyTls::SSL::Box.new(false, self, private_key: dir + 'client.key', cert_chain: dir + 'client.crt', host_name: 'just.testing.com')
         end
 
         attr_reader :ssl
