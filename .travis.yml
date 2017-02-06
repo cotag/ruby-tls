@@ -1,9 +1,17 @@
 language: ruby
 rvm:
-  - "2.2"
+  - ruby-2.2.5
+  - ruby-2.3.3
   - ruby-head
-  - rbx-2
-  - jruby-20mode
+  - rubinius-3.62
+  - jruby-9.1.5.0
+  - jruby-head
 before_install:
   - sudo apt-get update -qq
   - sudo apt-get install -y openssl libssl-dev
+matrix:
+  allow_failures:
+    - rvm: jruby-head
+    - rvm: ruby-head
+sudo: required
+dist: trusty
