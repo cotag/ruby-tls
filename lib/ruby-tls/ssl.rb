@@ -143,11 +143,29 @@ module RubyTls
 
         attach_function :SSL_ctrl, [:ssl, :int, :long, :pointer], :long
         SSL_CTRL_SET_TLSEXT_HOSTNAME = 55
-        TLSEXT_NAMETYPE_host_name = 0
         def self.SSL_set_tlsext_host_name(ssl, host_name)
             name = FFI::MemoryPointer.from_string(host_name)
             SSL_ctrl(ssl, SSL_CTRL_SET_TLSEXT_HOSTNAME, TLSEXT_NAMETYPE_host_name, name)
         end
+
+        # Server Name Indication (SNI) Support
+        # NOTE:: We've hard coded the callback here (SSL defines a NULL callback)
+        callback :ssl_servername_cb, [:ssl, :pointer, :pointer], :int
+        attach_function :SSL_CTX_callback_ctrl, [:ssl_ctx, :int, :ssl_servername_cb], :long
+        SSL_CTRL_SET_TLSEXT_SERVERNAME_CB = 53
+        def self.SSL_CTX_set_tlsext_servername_callback(ctx, callback)
+            SSL_CTX_callback_ctrl(ctx, SSL_CTRL_SET_TLSEXT_SERVERNAME_CB, callback)
+        end
+
+        attach_function :SSL_get_servername, [:ssl, :int], :string
+        TLSEXT_NAMETYPE_host_name = 0
+
+        attach_function :SSL_set_SSL_CTX, [:ssl, :ssl_ctx], :ssl_ctx
+
+        SSL_TLSEXT_ERR_OK = 0
+        SSL_TLSEXT_ERR_ALERT_WARNING = 1
+        SSL_TLSEXT_ERR_ALERT_FATAL = 2
+        SSL_TLSEXT_ERR_NOACK = 3
 
         attach_function :SSL_CTX_use_PrivateKey_file, [:ssl_ctx, :string, :int], :int, :blocking => true
         attach_function :SSL_CTX_use_PrivateKey, [:ssl_ctx, :pointer], :int
@@ -162,11 +180,6 @@ module RubyTls
         # OpenSSL before 1.0.2 do not have these methods
         begin
             attach_function :SSL_CTX_set_alpn_protos, [:ssl_ctx, :string, :uint], :int
-
-            SSL_TLSEXT_ERR_OK = 0
-            SSL_TLSEXT_ERR_ALERT_WARNING = 1
-            SSL_TLSEXT_ERR_ALERT_FATAL = 2
-            SSL_TLSEXT_ERR_NOACK = 3
 
             OPENSSL_NPN_UNSUPPORTED = 0
             OPENSSL_NPN_NEGOTIATED = 1
@@ -327,15 +340,18 @@ keystr
 
             def initialize(server, options = {})
                 @is_server = server
-                @ssl_ctx = SSL.SSL_CTX_new(server ? SSL.SSLv23_server_method : SSL.SSLv23_client_method)
-                SSL.SSL_CTX_set_options(@ssl_ctx, SSL::SSL_OP_ALL)
-                SSL.SSL_CTX_set_mode(@ssl_ctx, SSL::SSL_MODE_RELEASE_BUFFERS)
 
                 if @is_server
+                    @ssl_ctx = SSL.SSL_CTX_new(SSL.SSLv23_server_method)
                     set_private_key(options[:private_key] || SSL::DEFAULT_PRIVATE)
                     set_certificate(options[:cert_chain]  || SSL::DEFAULT_CERT)
                     set_client_ca(options[:client_ca])
+                else
+                    @ssl_ctx = SSL.SSL_CTX_new(SSL.SSLv23_client_method)
                 end
+
+                SSL.SSL_CTX_set_options(@ssl_ctx, SSL::SSL_OP_ALL)
+                SSL.SSL_CTX_set_mode(@ssl_ctx, SSL::SSL_MODE_RELEASE_BUFFERS)
 
                 SSL.SSL_CTX_set_cipher_list(@ssl_ctx, options[:ciphers] || CIPHERS)
                 @alpn_set = false
@@ -372,6 +388,24 @@ keystr
             attr_reader :ssl_ctx
             attr_reader :alpn_set
             attr_reader :alpn_str
+
+            def add_server_name_indication
+                raise 'only valid for server mode context' unless @is_server
+                SSL.SSL_CTX_set_tlsext_servername_callback(@ssl_ctx, ServerNameCB)
+            end
+
+            ServerNameCB = FFI::Function.new(:int, [:pointer, :pointer, :pointer]) do |ssl, _, _|
+                ruby_ssl = Box::InstanceLookup[ssl.address]
+                return SSL::SSL_TLSEXT_ERR_NOACK unless ruby_ssl
+
+                ctx = ruby_ssl.hosts[SSL.SSL_get_servername(ssl, SSL::TLSEXT_NAMETYPE_host_name)]
+                if ctx
+                    SSL.SSL_set_SSL_CTX(ssl, ctx.ssl_ctx)
+                    SSL::SSL_TLSEXT_ERR_OK
+                else
+                    SSL::SSL_TLSEXT_ERR_ALERT_FATAL
+                end
+            end
 
 
             private
@@ -470,18 +504,46 @@ keystr
                 end
 
                 # Add Server Name Indication (SNI) for client connections
-                # TODO:: Server support for SNI
-                if !server && options[:host_name]
-                    SSL.SSL_set_tlsext_host_name(@ssl, options[:host_name])
+                if options[:host_name]
+                    if server
+                        @hosts = ::Concurrent::Map.new
+                        @hosts[options[:host_name].to_s] = @context
+                        @context.add_server_name_indication
+                    else
+                        SSL.SSL_set_tlsext_host_name(@ssl, options[:host_name])
+                    end
                 end
 
                 SSL.SSL_connect(@ssl) unless server
             end
 
 
-            attr_reader :is_server
-            attr_reader :context
+            def add_host(host_name:, **options)
+                raise 'Server Name Indication (SNI) not configured for default host' unless @hosts
+                raise 'only valid for server mode context' unless @is_server
+                context = Context.new(true, options)
+                @hosts[host_name.to_s] = context
+                context.add_server_name_indication
+                nil
+            end
+
+            # Careful with this.
+            # If you remove all the hosts you'll end up with a segfault
+            def remove_host(host_name)
+                raise 'Server Name Indication (SNI) not configured for default host' unless @hosts
+                raise 'only valid for server mode context' unless @is_server
+                context = @hosts[host_name.to_s]
+                if context
+                    @hosts.delete(host_name.to_s)
+                    context.cleanup
+                end
+                nil
+            end
+
+
+            attr_reader :is_server, :context
             attr_reader :handshake_completed
+            attr_reader :hosts
 
 
             def get_peer_cert
@@ -598,7 +660,14 @@ keystr
 
                 SSL.SSL_free @ssl
 
-                @context.cleanup
+                if @hosts
+                    @hosts.each_value do |context|
+                        context.cleanup
+                    end
+                    @hosts = nil
+                else
+                    @context.cleanup
+                end
             end
 
             # Called from class level callback function

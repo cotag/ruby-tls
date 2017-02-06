@@ -97,6 +97,118 @@ describe RubyTls do
         end
 
 
+        it "should verify the hostname" do
+            @server_data = []
+            @client_data = []
+
+            class Server3
+                def initialize(client, server_data)
+                    @client = client
+                    @server_data = server_data
+                    @ssl = RubyTls::SSL::Box.new(true, self, host_name: 'just.testing.com')
+                end
+
+                attr_reader :ssl
+                attr_accessor :started
+                attr_accessor :stop
+                attr_accessor :cert_from_server
+
+                def close_cb
+                    @server_data << 'close'
+                    @stop = true
+                end
+
+                def dispatch_cb(data)
+                    @server_data << data
+                end
+
+                def transmit_cb(data)
+                    @client.ssl.decrypt(data) unless @stop
+                end
+
+                def handshake_cb(protocol)
+                    @server_data << 'ready'
+                end
+            end
+
+
+            @client = Client2.new(@client_data, @dir)
+            @server = Server3.new(@client, @server_data)
+            @client.server = @server
+
+            @client.ssl.start
+            @client.ssl.cleanup
+            @server.ssl.cleanup
+            
+            expect(@client_data).to eq(['ready'])
+            expect(@server_data).to eq(['ready'])
+        end
+
+        it "should fail if host name not found" do
+            @server_data = []
+            @client_data = []
+
+            class Server4
+                def initialize(client, server_data)
+                    @client = client
+                    @server_data = server_data
+                    @ssl = RubyTls::SSL::Box.new(true, self, host_name: 'testing.com')
+                end
+
+                attr_reader :ssl
+                attr_accessor :started
+                attr_accessor :stop
+                attr_accessor :cert_from_server
+
+                def close_cb
+                    @server_data << 'close'
+                    @stop = true
+                end
+
+                def dispatch_cb(data)
+                    @server_data << data
+                end
+
+                def transmit_cb(data)
+                    @client.ssl.decrypt(data) unless @stop
+                end
+
+                def handshake_cb(protocol)
+                    @server_data << 'ready'
+                end
+            end
+
+
+            @client = Client2.new(@client_data, @dir)
+            @server = Server4.new(@client, @server_data)
+            @client.server = @server
+
+            @client.ssl.start
+            @client.ssl.cleanup
+            @server.ssl.cleanup
+            
+            expect(@client_data).to eq([])
+            expect(@server_data).to eq(['close'])
+        end
+
+        it "test actually adding a second context" do
+            @server_data = []
+            @client_data = []
+
+            @client = Client2.new(@client_data, @dir)
+            @server = Server4.new(@client, @server_data)
+            @client.server = @server
+            @server.ssl.add_host host_name: 'just.testing.com'
+
+            @client.ssl.start
+            @client.ssl.cleanup
+            @server.ssl.cleanup
+            
+            expect(@client_data).to eq(['ready'])
+            expect(@server_data).to eq(['ready'])
+        end
+
+
         it "should deny the connection" do
             @server_data = []
             @client_data = []
