@@ -4,6 +4,18 @@ describe RubyTls do
 
     describe RubyTls::SSL::Box do
 
+        it "fails when passed an unsupported TLS version" do
+            expect {
+                RubyTls::SSL::Box.new(false, nil, version: :TLS1_4)
+            }.to raise_error(/is unsupported/)
+        end
+
+        it "succeeds when passed a supported TLS version" do
+            expect {
+                RubyTls::SSL::Box.new(false, nil, version: :TLS1_2)
+            }.to raise_error(/is unsupported/)
+        end
+
         it "should be able to send and receive encrypted comms" do
             @server_data = []
             @client_data = []

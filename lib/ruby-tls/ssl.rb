@@ -89,9 +89,6 @@ module RubyTls
         # PutCiphertext
         attach_function :BIO_write, [:bio, :buffer_in, :buffer_length], :int
 
-        # SelectALPNCallback
-        # TODO:: SSL_select_next_proto
-
         # Deconstructor
         attach_function :SSL_get_shutdown, [:ssl], :int
         attach_function :SSL_shutdown, [:ssl], :int
@@ -106,9 +103,6 @@ module RubyTls
                                              # r,   w
         attach_function :SSL_set_bio, [:ssl, :bio, :bio], :void
 
-        # TODO:: SSL_CTX_set_alpn_select_cb
-        # Will have to put a try catch around these and support when available
-
         attach_function :SSL_set_ex_data, [:ssl, :int, :string], :int
         callback :verify_callback, [:int, :x509], :int
         attach_function :SSL_set_verify, [:ssl, :int, :verify_callback], :void
@@ -120,11 +114,33 @@ module RubyTls
         attach_function :X509_STORE_CTX_get_ex_data, [:pointer, :int], :ssl
         attach_function :PEM_write_bio_X509, [:bio, :x509], :int
 
-
         # SSL Context Class
-        # Constructor
-        attach_function :SSLv23_server_method, [], :pointer
-        attach_function :SSLv23_client_method, [], :pointer
+        # OpenSSL before 1.1.0 do not have these methods
+        # https://www.openssl.org/docs/man1.1.0/ssl/TLSv1_2_server_method.html
+        begin
+            attach_function :TLS_server_method, [], :pointer
+            attach_function :TLS_client_method, [], :pointer
+
+            VERSION_SUPPORTED = true
+
+            SSL3_VERSION    = 0x0300
+            TLS1_VERSION    = 0x0301
+            TLS1_1_VERSION  = 0x0302
+            TLS1_2_VERSION  = 0x0303
+            TLS1_3_VERSION  = 0x0304
+            TLS_MAX_VERSION = TLS1_3_VERSION
+            ANY_VERSION     = 0
+            attach_function :SSL_CTX_set_min_proto_version, [:ssl_ctx, :int], :int
+            attach_function :SSL_CTX_set_max_proto_version, [:ssl_ctx, :int], :int
+        rescue FFI::NotFoundError
+            attach_function :SSLv23_server_method, [], :pointer
+            attach_function :SSLv23_client_method, [], :pointer
+
+            def self.TLS_server_method; self.SSLv23_server_method; end
+            def self.TLS_client_method; self.SSLv23_client_method; end
+
+            VERSION_SUPPORTED = false
+        end
         attach_function :SSL_CTX_new, [:pointer], :ssl_ctx
 
         attach_function :SSL_CTX_ctrl, [:ssl_ctx, :int, :ulong, :pointer], :long
@@ -176,6 +192,7 @@ module RubyTls
         attach_function :SSL_CTX_set_session_id_context, [:ssl_ctx, :string, :buffer_length], :int
         attach_function :SSL_load_client_CA_file, [:string], :pointer
         attach_function :SSL_CTX_set_client_CA_list, [:ssl_ctx, :pointer], :void
+        attach_function :SSL_CTX_load_verify_locations, [:ssl_ctx, :pointer], :int, :blocking => true
 
         # OpenSSL before 1.0.2 do not have these methods
         begin
@@ -342,12 +359,12 @@ keystr
                 @is_server = server
 
                 if @is_server
-                    @ssl_ctx = SSL.SSL_CTX_new(SSL.SSLv23_server_method)
+                    @ssl_ctx = SSL.SSL_CTX_new(SSL.TLS_server_method)
                     set_private_key(options[:private_key] || SSL::DEFAULT_PRIVATE)
                     set_certificate(options[:cert_chain]  || SSL::DEFAULT_CERT)
                     set_client_ca(options[:client_ca])
                 else
-                    @ssl_ctx = SSL.SSL_CTX_new(SSL.SSLv23_client_method)
+                    @ssl_ctx = SSL.SSL_CTX_new(SSL.TLS_client_method)
                 end
 
                 SSL.SSL_CTX_set_options(@ssl_ctx, SSL::SSL_OP_ALL)
@@ -355,6 +372,12 @@ keystr
 
                 SSL.SSL_CTX_set_cipher_list(@ssl_ctx, options[:ciphers] || CIPHERS)
                 @alpn_set = false
+
+                version = options[:version]
+                if version
+                    vresult = set_min_proto_version(version)
+                    raise "#{version} is unsupported" unless vresult
+                end
 
                 if @is_server
                     SSL.SSL_CTX_sess_set_cache_size(@ssl_ctx, 128)
@@ -375,6 +398,24 @@ keystr
                         @alpn_set = SSL.SSL_CTX_set_alpn_protos(@ssl_ctx, protocols, protocols.length) == 0
                     end
                 end
+            end
+
+            # Version can be one of:
+            # :SSL3, :TLS1, :TLS1_1, :TLS1_2, :TLS1_3, :TLS_MAX
+            def set_min_proto_version(version)
+                return false unless VERSION_SUPPORTED
+                num = SSL.const_get("#{version}_VERSION")
+                SSL.SSL_CTX_set_min_proto_version(@ssl_ctx, num) == 1
+            rescue NameError
+                false
+            end
+
+            def set_max_proto_version(version)
+                return false unless VERSION_SUPPORTED
+                num = SSL.const_get("#{version}_VERSION")
+                SSL.SSL_CTX_set_max_proto_version(@ssl_ctx, num) == 1
+            rescue NameError
+                false
             end
 
             def cleanup
