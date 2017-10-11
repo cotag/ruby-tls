@@ -11,9 +11,7 @@ describe RubyTls do
         end
 
         it "succeeds when passed a supported TLS version" do
-            expect {
-                RubyTls::SSL::Box.new(false, nil, version: :TLS1_2)
-            }.to raise_error(/is unsupported/)
+            RubyTls::SSL::Box.new(false, nil, version: :TLS1_2) if RubyTls::SSL::VERSION_SUPPORTED
         end
 
         it "should be able to send and receive encrypted comms" do
