@@ -689,6 +689,7 @@ keystr
 
             SSL_RECEIVED_SHUTDOWN = 2
             def cleanup
+                return unless @ready
                 @ready = false
 
                 InstanceLookup.delete @ssl.address
