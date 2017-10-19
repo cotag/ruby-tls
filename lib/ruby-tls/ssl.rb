@@ -121,8 +121,6 @@ module RubyTls
             attach_function :TLS_server_method, [], :pointer
             attach_function :TLS_client_method, [], :pointer
 
-            VERSION_SUPPORTED = true
-
             SSL3_VERSION    = 0x0300
             TLS1_VERSION    = 0x0301
             TLS1_1_VERSION  = 0x0302
@@ -132,6 +130,7 @@ module RubyTls
             ANY_VERSION     = 0
             attach_function :SSL_CTX_set_min_proto_version, [:ssl_ctx, :int], :int
             attach_function :SSL_CTX_set_max_proto_version, [:ssl_ctx, :int], :int
+            VERSION_SUPPORTED = true
         rescue FFI::NotFoundError
             attach_function :SSLv23_server_method, [], :pointer
             attach_function :SSLv23_client_method, [], :pointer
