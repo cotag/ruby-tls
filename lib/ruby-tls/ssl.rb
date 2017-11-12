@@ -10,15 +10,14 @@ module RubyTls
     module SSL
         extend FFI::Library
         if FFI::Platform.windows?
-            ffi_lib 'libeay32', 'ssleay32'
+            begin
+                ffi_lib 'libeay32', 'ssleay32'
+            rescue LoadError
+                ffi_lib 'libcrypto-1_1-x64', 'libssl-1_1-x64'
+            end
         else
             ffi_lib 'ssl'
         end
-
-        attach_function :SSL_library_init, [], :int
-        attach_function :SSL_load_error_strings, [], :void
-        attach_function :ERR_load_crypto_strings, [], :void
-
 
         # Common structures
         typedef :pointer, :user_data
@@ -33,14 +32,36 @@ module RubyTls
         typedef :int, :pass_length
         typedef :int, :read_write_flag
 
+        SSL_ST_OK = 0x03
+        begin
+            attach_function :SSL_library_init, [], :int
+            attach_function :SSL_load_error_strings, [], :void
+            attach_function :ERR_load_crypto_strings, [], :void
+
+            attach_function :SSL_state, [:ssl], :int
+            def self.SSL_is_init_finished(ssl)
+                SSL_state(ssl) == SSL_ST_OK
+            end
+
+            OPENSSL_V1_1 = false
+        rescue FFI::NotFoundError
+            OPENSSL_V1_1 = true
+            OPENSSL_INIT_LOAD_SSL_STRINGS = 0x200000
+            OPENSSL_INIT_NO_LOAD_SSL_STRINGS = 0x100000
+            attach_function :OPENSSL_init_ssl, [:uint64_t, :pointer], :int
+
+            attach_function :SSL_get_state, [:ssl], :int
+            def self.SSL_is_init_finished(ssl)
+                SSL_get_state(ssl) == SSL_ST_OK
+            end
+        end
 
         # Multi-threaded support
-        callback :locking_cb, [:int, :int, :string, :int], :void
-        callback :thread_id_cb, [], :ulong
-        attach_function :CRYPTO_num_locks, [], :int
-        attach_function :CRYPTO_set_locking_callback, [:locking_cb], :void
-        attach_function :CRYPTO_set_id_callback, [:thread_id_cb], :void
-
+        #callback :locking_cb, [:int, :int, :string, :int], :void
+        #callback :thread_id_cb, [], :ulong
+        #attach_function :CRYPTO_num_locks, [], :int
+        #attach_function :CRYPTO_set_locking_callback, [:locking_cb], :void
+        #attach_function :CRYPTO_set_id_callback, [:thread_id_cb], :void
 
         # InitializeDefaultCredentials
         attach_function :BIO_new_mem_buf, [:string, :buffer_length], :bio
@@ -53,13 +74,6 @@ module RubyTls
         attach_function :PEM_read_bio_X509, [:bio, :x509_pointer, :pem_password_cb, :user_data], :x509
 
         attach_function :BIO_free, [:bio], :int
-
-        # CONSTANTS
-        SSL_ST_OK = 0x03
-        attach_function :SSL_state, [:ssl], :int
-        def self.SSL_is_init_finished(ssl)
-            SSL_state(ssl) == SSL_ST_OK
-        end
 
         # GetPeerCert
         attach_function :SSL_get_peer_certificate, [:ssl], :x509
@@ -120,6 +134,21 @@ module RubyTls
         begin
             attach_function :TLS_server_method, [], :pointer
             attach_function :TLS_client_method, [], :pointer
+        rescue FFI::NotFoundError
+            attach_function :SSLv23_server_method, [], :pointer
+            attach_function :SSLv23_client_method, [], :pointer
+
+            def self.TLS_server_method; self.SSLv23_server_method; end
+            def self.TLS_client_method; self.SSLv23_client_method; end
+        end
+
+        # Version can be one of:
+        # :SSL3, :TLS1, :TLS1_1, :TLS1_2, :TLS1_3, :TLS_MAX
+        begin
+            attach_function :SSL_CTX_set_min_proto_version, [:ssl_ctx, :int], :int
+            attach_function :SSL_CTX_set_max_proto_version, [:ssl_ctx, :int], :int
+
+            VERSION_SUPPORTED = true
 
             SSL3_VERSION    = 0x0300
             TLS1_VERSION    = 0x0301
@@ -128,18 +157,11 @@ module RubyTls
             TLS1_3_VERSION  = 0x0304
             TLS_MAX_VERSION = TLS1_3_VERSION
             ANY_VERSION     = 0
-            attach_function :SSL_CTX_set_min_proto_version, [:ssl_ctx, :int], :int
-            attach_function :SSL_CTX_set_max_proto_version, [:ssl_ctx, :int], :int
-            VERSION_SUPPORTED = true
         rescue FFI::NotFoundError
-            attach_function :SSLv23_server_method, [], :pointer
-            attach_function :SSLv23_client_method, [], :pointer
-
-            def self.TLS_server_method; self.SSLv23_server_method; end
-            def self.TLS_client_method; self.SSLv23_client_method; end
-
             VERSION_SUPPORTED = false
         end
+
+
         attach_function :SSL_CTX_new, [:pointer], :ssl_ctx
 
         attach_function :SSL_CTX_ctrl, [:ssl_ctx, :int, :ulong, :pointer], :long
@@ -287,10 +309,13 @@ keystr
         # INIT CODE
         @init_required ||= false
         unless @init_required
-            self.SSL_load_error_strings
-            self.SSL_library_init
-            self.ERR_load_crypto_strings
-
+            if OPENSSL_V1_1
+                self.OPENSSL_init_ssl(OPENSSL_INIT_LOAD_SSL_STRINGS, ::FFI::Pointer::NULL)
+            else
+                self.SSL_load_error_strings
+                self.SSL_library_init
+                self.ERR_load_crypto_strings
+            end
 
             # Setup multi-threaded support
             #SSL_LOCKS = []
@@ -401,20 +426,23 @@ keystr
 
             # Version can be one of:
             # :SSL3, :TLS1, :TLS1_1, :TLS1_2, :TLS1_3, :TLS_MAX
-            def set_min_proto_version(version)
-                return false unless VERSION_SUPPORTED
-                num = SSL.const_get("#{version}_VERSION")
-                SSL.SSL_CTX_set_min_proto_version(@ssl_ctx, num) == 1
-            rescue NameError
-                false
-            end
+            if SSL::VERSION_SUPPORTED
+                def set_min_proto_version(version)
+                    num = SSL.const_get("#{version}_VERSION")
+                    SSL.SSL_CTX_set_min_proto_version(@ssl_ctx, num) == 1
+                rescue NameError
+                    false
+                end
 
-            def set_max_proto_version(version)
-                return false unless VERSION_SUPPORTED
-                num = SSL.const_get("#{version}_VERSION")
-                SSL.SSL_CTX_set_max_proto_version(@ssl_ctx, num) == 1
-            rescue NameError
-                false
+                def set_max_proto_version(version)
+                    num = SSL.const_get("#{version}_VERSION")
+                    SSL.SSL_CTX_set_max_proto_version(@ssl_ctx, num) == 1
+                rescue NameError
+                    false
+                end
+            else
+                def set_min_proto_version(version); false; end
+                def set_max_proto_version(version); false; end
             end
 
             def cleanup
